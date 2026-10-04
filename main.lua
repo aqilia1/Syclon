@@ -1,11 +1,11 @@
 -- URL Dasar GitHub milikmu (Ganti Username dan Repo kamu)
-local baseUrl = "https://raw.githubusercontent.com/UsernameKamu/RepoKamu/main/scripts/"
+local baseUrl = "https://raw.githubusercontent.com/Aqilia1/Syclon/main/scripts/"
 
 -- 1. Daftar Map yang Didukung beserta nama file script-nya
 local MapScripts = {
     -- [PlaceID] = "NamaFileScript.lua"
-    [2753915549] = "blox_fruits.lua",  -- Blox Fruits First Sea
-    [4442272183] = "blox_fruits.lua",  -- Blox Fruits Second Sea
+    [91653709055687] = "StealAndCookFood.lua",  -- Blox Fruits First Sea
+    [104050046639813] = "RideAFishlua",  -- Blox Fruits Second Sea
     [7449423635] = "blox_fruits.lua",  -- Blox Fruits Third Sea
     [4520749081] = "king_legacy.lua",  -- King Legacy
     [13772394367] = "blade_ball.lua",  -- Blade Ball
