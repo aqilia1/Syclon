@@ -1,5 +1,5 @@
 -- URL Dasar GitHub milikmu (Ganti Username dan Repo kamu)
-local baseUrl = "https://github.com/aqilia1/Syclon/tree/main"
+local baseUrl = "https://raw.githubusercontent.com/aqilia1/Syclon/refs/heads/main/"
 
 -- 1. Daftar Map yang Didukung beserta nama file script-nya
 local MapScripts = {
