@@ -171,7 +171,7 @@ titleLogo.Parent = titleBar
 local titleLabel = Instance.new("TextLabel")
 titleLabel.Size = UDim2.new(1, -90, 1, 0)
 titleLabel.Position = UDim2.new(0, 30, 0, 0)
-titleLabel.Text = "SYCLON HUB"
+titleLabel.Text = "SYCLON"
 titleLabel.TextColor3 = Color3.fromRGB(240, 240, 240)
 titleLabel.Font = Enum.Font.SourceSansBold
 titleLabel.TextSize = 12
@@ -236,10 +236,10 @@ local function createStyledButton(text, pos, bgCol, textCol)
     return btn
 end
 
-local dropdownWildEggsBtn = createStyledButton("TP WildEggs (0)  ▼", UDim2.new(0, 0, 0, 0), Color3.fromRGB(30, 35, 45), Color3.fromRGB(0, 200, 255))
+local dropdownWildEggsBtn = createStyledButton("Select Eggs(0)  ▼", UDim2.new(0, 0, 0, 0), Color3.fromRGB(30, 35, 45), Color3.fromRGB(0, 200, 255))
 dropdownWildEggsBtn.Parent = contentFrame
 
-local dropdownESPBtn = createStyledButton("ESP WildEggs (0)  ▼", UDim2.new(0, 0, 0, 38), Color3.fromRGB(30, 35, 45), Color3.fromRGB(210, 120, 255))
+local dropdownESPBtn = createStyledButton("ESP Eggs (0)  ▼", UDim2.new(0, 0, 0, 38), Color3.fromRGB(30, 35, 45), Color3.fromRGB(210, 120, 255))
 dropdownESPBtn.Parent = contentFrame
 
 local espToggleBtn = createStyledButton("MASTER ESP: ON", UDim2.new(0, 0, 0, 76), Color3.fromRGB(110, 40, 160), Color3.fromRGB(255, 255, 255))
@@ -301,11 +301,11 @@ local function updateDropdownTitles()
 
     local weSelected = 0
     for _, v in pairs(selectedWildEggsTargets) do if v then weSelected = weSelected + 1 end end
-    dropdownWildEggsBtn.Text = "TP WildEggs (" .. weSelected .. ")" .. (activeDropdown == "WildEggs" and "  ▲" or "  ▼")
+    dropdownWildEggsBtn.Text = "Select Eggs(" .. weSelected .. ")" .. (activeDropdown == "WildEggs" and "  ▲" or "  ▼")
 
     local espSelected = 0
     for _, v in pairs(selectedESPTargets) do if v then espSelected = espSelected + 1 end end
-    dropdownESPBtn.Text = "ESP WildEggs (" .. espSelected .. ")" .. (activeDropdown == "ESP" and "  ▲" or "  ▼")
+    dropdownESPBtn.Text = "ESP Eggs (" .. espSelected .. ")" .. (activeDropdown == "ESP" and "  ▲" or "  ▼")
 end
 
 local itemButtons = {}
