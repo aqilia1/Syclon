@@ -1,60 +1,69 @@
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local CoreGui = game:GetService("CoreGui")
-
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local LocalPlayer = Players.LocalPlayer
 
--- Penanganan lokasi GUI aman (CoreGui / PlayerGui)
-local guiParent = CoreGui
-local success, _ = pcall(function() return CoreGui.Name end)
-if not success then
-    guiParent = LocalPlayer:WaitForChild("PlayerGui")
+-- System Safe Parent (Cek CoreGui, jika gagal pakai PlayerGui)
+local guiParent = LocalPlayer:WaitForChild("PlayerGui")
+pcall(function()
+    if CoreGui and pcall(function() return CoreGui.Name end) then
+        guiParent = CoreGui
+    end
+end)
+
+-- Hapus GUI lama jika ada
+if guiParent:FindFirstChild("SyclonWildEggGUI") then
+    guiParent.SyclonWildEggGUI:Destroy()
 end
 
-if guiParent:FindFirstChild("WildEggESPSelectorGUI") then
-    guiParent.WildEggESPSelectorGUI:Destroy()
-end
-
--- Data Seleksi (Tetap tersimpan meski item di map hilang)
-local selectedSpawnPointTargets = {}
+-- Data & State
 local selectedWildEggsTargets = {}
 local selectedESPTargets = {}
-
--- Cache Semua Nama Item yang Pernah Ditemukan (Agar teks UI tidak hilang)
-local knownSpawnPointNames = {}
 local knownWildEggsNames = {}
 
 local isRunning = false
 local espEnabled = true
 local activeDropdown = nil
 local isMinimized = false
-local savedSpawnCFrame = nil
 
--- FUNGSI SCAN SPAWNPOINT (Daftar & Hitung Jumlah di Map)
-local function getSpawnPointData()
-    local mapCounts = {}
-    local spawnPointFolder = Workspace:FindFirstChild("SpawnPoint")
-    
-    if spawnPointFolder then
-        for _, subFolder in ipairs(spawnPointFolder:GetChildren()) do
-            local targets = subFolder:GetChildren()
-            if #targets == 0 then targets = {subFolder} end
-
-            for _, item in ipairs(targets) do
-                local name = item:GetAttribute("EggTier") or item.Name
-                mapCounts[name] = (mapCounts[name] or 0) + 1
-                
-                if not table.find(knownSpawnPointNames, name) then
-                    table.insert(knownSpawnPointNames, name)
-                end
-            end
-        end
-    end
-    table.sort(knownSpawnPointNames)
-    return knownSpawnPointNames, mapCounts
+-- Helper Functions
+local function getRootPart()
+    local character = LocalPlayer.Character
+    return character and character:FindFirstChild("HumanoidRootPart")
 end
 
--- FUNGSI SCAN WILDEGGS (Daftar & Hitung Jumlah di Map)
+local function triggerProximityPrompt(prompt)
+    if prompt and prompt:IsA("ProximityPrompt") then
+        pcall(function()
+            local oldHold = prompt.HoldDuration
+            local oldDist = prompt.MaxActivationDistance
+            prompt.HoldDuration = 0
+            prompt.MaxActivationDistance = math.huge
+            
+            if fireproximityprompt then
+                fireproximityprompt(prompt)
+            end
+            
+            task.delay(0.1, function()
+                if prompt and prompt.Parent then
+                    prompt.HoldDuration = oldHold
+                    prompt.MaxActivationDistance = oldDist
+                end
+            end)
+        end)
+    end
+end
+
+local function storeEggRemote()
+    pcall(function()
+        local eggGame = ReplicatedStorage:FindFirstChild("EggGame")
+        if eggGame and eggGame:FindFirstChild("Requests") then
+            eggGame.Requests:FireServer("StoreEgg")
+        end
+    end)
+end
+
 local function getWildEggsData()
     local mapCounts = {}
     local eggRuntime = Workspace:FindFirstChild("EggRuntime")
@@ -64,7 +73,6 @@ local function getWildEggsData()
         for _, child in ipairs(wildEggsFolder:GetChildren()) do
             local name = child:GetAttribute("EggTier") or child.Name
             mapCounts[name] = (mapCounts[name] or 0) + 1
-            
             if not table.find(knownWildEggsNames, name) then
                 table.insert(knownWildEggsNames, name)
             end
@@ -74,17 +82,13 @@ local function getWildEggsData()
     return knownWildEggsNames, mapCounts
 end
 
--- ESP SYSTEM KHUSUS WILDEGGS
+-- ESP System
 local function createESP(instance, name, color)
     if not instance or not instance.Parent then return end
-    
     if not selectedESPTargets[name] then
-        if instance:FindFirstChild("EggBillboard") then
-            instance.EggBillboard:Destroy()
-        end
+        if instance:FindFirstChild("EggBillboard") then instance.EggBillboard:Destroy() end
         return
     end
-
     if instance:FindFirstChild("EggBillboard") then return end
 
     local billboard = Instance.new("BillboardGui")
@@ -97,10 +101,10 @@ local function createESP(instance, name, color)
     local label = Instance.new("TextLabel")
     label.Size = UDim2.new(1, 0, 1, 0)
     label.BackgroundTransparency = 1
-    label.Text = name
-    label.TextColor3 = color or Color3.fromRGB(0, 200, 255)
-    label.TextStrokeTransparency = 0
-    label.TextSize = 10
+    label.Text = "• " .. name .. " •"
+    label.TextColor3 = color or Color3.fromRGB(0, 230, 255)
+    label.TextStrokeTransparency = 0.2
+    label.TextSize = 11
     label.Font = Enum.Font.SourceSansBold
     label.Parent = billboard
 
@@ -120,175 +124,203 @@ local function updateESP()
     if wildEggsFolder then
         for _, item in ipairs(wildEggsFolder:GetChildren()) do
             local name = item:GetAttribute("EggTier") or item.Name
-            createESP(item, name, Color3.fromRGB(0, 200, 255))
+            createESP(item, name, Color3.fromRGB(0, 230, 255))
         end
     end
 end
 
--- UI UTAMA
+-- ==================== UI BUILDER ====================
 local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "WildEggESPSelectorGUI"
+screenGui.Name = "SyclonWildEggGUI"
 screenGui.ResetOnSpawn = false
+screenGui.DisplayOrder = 999
 screenGui.Parent = guiParent
 
+-- Window Utama
 local mainFrame = Instance.new("Frame")
-mainFrame.Size = UDim2.new(0, 240, 0, 215)
-mainFrame.Position = UDim2.new(0.05, 0, 0.3, 0)
-mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-mainFrame.BorderSizePixel = 1
-mainFrame.BorderColor3 = Color3.fromRGB(60, 60, 60)
+mainFrame.Name = "MainFrame"
+mainFrame.Size = UDim2.new(0, 250, 0, 210)
+mainFrame.Position = UDim2.new(0.08, 0, 0.25, 0)
+mainFrame.BackgroundColor3 = Color3.fromRGB(22, 24, 29)
+mainFrame.BorderSizePixel = 0
 mainFrame.Active = true
 mainFrame.Draggable = true
 mainFrame.Parent = screenGui
 
-local titleLabel = Instance.new("TextLabel")
-titleLabel.Size = UDim2.new(1, -50, 0, 25)
-titleLabel.Text = " Teleport & WildEggs ESP"
-titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-titleLabel.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
-titleLabel.TextSize = 11
-titleLabel.Font = Enum.Font.SourceSansBold
-titleLabel.TextXAlignment = Enum.TextXAlignment.Left
-titleLabel.Parent = mainFrame
+pcall(function()
+    local mainCorner = Instance.new("UICorner")
+    mainCorner.CornerRadius = UDim.new(0, 10)
+    mainCorner.Parent = mainFrame
+end)
 
+-- Title Bar
+local titleBar = Instance.new("Frame")
+titleBar.Size = UDim2.new(1, 0, 0, 35)
+titleBar.BackgroundTransparency = 1
+titleBar.Parent = mainFrame
+
+local titleLogo = Instance.new("TextLabel")
+titleLogo.Size = UDim2.new(0, 35, 1, 0)
+titleLogo.Text = " S"
+titleLogo.TextColor3 = Color3.fromRGB(0, 180, 255)
+titleLogo.Font = Enum.Font.SourceSansBold
+titleLogo.TextSize = 18
+titleLogo.BackgroundTransparency = 1
+titleLogo.Parent = titleBar
+
+local titleLabel = Instance.new("TextLabel")
+titleLabel.Size = UDim2.new(1, -90, 1, 0)
+titleLabel.Position = UDim2.new(0, 30, 0, 0)
+titleLabel.Text = "★SYCLON★"
+titleLabel.TextColor3 = Color3.fromRGB(240, 240, 240)
+titleLabel.Font = Enum.Font.SourceSansBold
+titleLabel.TextSize = 12
+titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+titleLabel.BackgroundTransparency = 1
+titleLabel.Parent = titleBar
+
+local minimizeBtn = Instance.new("TextButton")
+minimizeBtn.Size = UDim2.new(0, 24, 0, 24)
+minimizeBtn.Position = UDim2.new(1, -56, 0, 5)
+minimizeBtn.Text = "─"
+minimizeBtn.TextColor3 = Color3.fromRGB(180, 180, 180)
+minimizeBtn.BackgroundColor3 = Color3.fromRGB(32, 36, 45)
+minimizeBtn.Font = Enum.Font.SourceSansBold
+minimizeBtn.TextSize = 12
+minimizeBtn.Parent = titleBar
+pcall(function()
+    local minCorner = Instance.new("UICorner")
+    minCorner.CornerRadius = UDim.new(0, 6)
+    minCorner.Parent = minimizeBtn
+end)
+
+local closeBtn = Instance.new("TextButton")
+closeBtn.Size = UDim2.new(0, 24, 0, 24)
+closeBtn.Position = UDim2.new(1, -29, 0, 5)
+closeBtn.Text = "✕"
+closeBtn.TextColor3 = Color3.fromRGB(255, 100, 100)
+closeBtn.BackgroundColor3 = Color3.fromRGB(45, 30, 35)
+closeBtn.Font = Enum.Font.SourceSansBold
+closeBtn.TextSize = 12
+closeBtn.Parent = titleBar
+pcall(function()
+    local closeCorner = Instance.new("UICorner")
+    closeCorner.CornerRadius = UDim.new(0, 6)
+    closeCorner.Parent = closeBtn
+end)
+
+-- Content Frame
 local contentFrame = Instance.new("Frame")
-contentFrame.Size = UDim2.new(1, 0, 1, -25)
-contentFrame.Position = UDim2.new(0, 0, 0, 25)
+contentFrame.Size = UDim2.new(1, -20, 1, -45)
+contentFrame.Position = UDim2.new(0, 10, 0, 38)
 contentFrame.BackgroundTransparency = 1
 contentFrame.Parent = mainFrame
 
--- Buttons Control
-local closeBtn = Instance.new("TextButton")
-closeBtn.Size = UDim2.new(0, 25, 0, 25)
-closeBtn.Position = UDim2.new(1, -25, 0, 0)
-closeBtn.Text = "X"
-closeBtn.BackgroundColor3 = Color3.fromRGB(180, 40, 40)
-closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-closeBtn.TextSize = 12
-closeBtn.Font = Enum.Font.SourceSansBold
-closeBtn.Parent = mainFrame
+local function createStyledButton(text, pos, bgCol, textCol)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1, 0, 0, 32)
+    btn.Position = pos
+    btn.Text = text
+    btn.BackgroundColor3 = bgCol
+    btn.TextColor3 = textCol
+    btn.Font = Enum.Font.SourceSansBold
+    btn.TextSize = 12
+    btn.AutoButtonColor = true
+    
+    pcall(function()
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(0, 7)
+        corner.Parent = btn
+    end)
+    
+    return btn
+end
 
-local minimizeBtn = Instance.new("TextButton")
-minimizeBtn.Size = UDim2.new(0, 25, 0, 25)
-minimizeBtn.Position = UDim2.new(1, -50, 0, 0)
-minimizeBtn.Text = "-"
-minimizeBtn.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
-minimizeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-minimizeBtn.TextSize = 14
-minimizeBtn.Font = Enum.Font.SourceSansBold
-minimizeBtn.Parent = mainFrame
-
--- Dropdown Buttons
-local dropdownSpawnPointBtn = Instance.new("TextButton")
-dropdownSpawnPointBtn.Size = UDim2.new(0.9, 0, 0, 22)
-dropdownSpawnPointBtn.Position = UDim2.new(0.05, 0, 0.04, 0)
-dropdownSpawnPointBtn.Text = "TP SpawnPoint (0) ▼"
-dropdownSpawnPointBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-dropdownSpawnPointBtn.TextColor3 = Color3.fromRGB(255, 215, 0)
-dropdownSpawnPointBtn.TextSize = 11
-dropdownSpawnPointBtn.Font = Enum.Font.SourceSansBold
-dropdownSpawnPointBtn.Parent = contentFrame
-
-local dropdownWildEggsBtn = Instance.new("TextButton")
-dropdownWildEggsBtn.Size = UDim2.new(0.9, 0, 0, 22)
-dropdownWildEggsBtn.Position = UDim2.new(0.05, 0, 0.22, 0)
-dropdownWildEggsBtn.Text = "TP WildEggs (0) ▼"
-dropdownWildEggsBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-dropdownWildEggsBtn.TextColor3 = Color3.fromRGB(0, 200, 255)
-dropdownWildEggsBtn.TextSize = 11
-dropdownWildEggsBtn.Font = Enum.Font.SourceSansBold
+local dropdownWildEggsBtn = createStyledButton("Select Eggs(0)  ▼", UDim2.new(0, 0, 0, 0), Color3.fromRGB(30, 35, 45), Color3.fromRGB(0, 200, 255))
 dropdownWildEggsBtn.Parent = contentFrame
 
-local dropdownESPBtn = Instance.new("TextButton")
-dropdownESPBtn.Size = UDim2.new(0.9, 0, 0, 22)
-dropdownESPBtn.Position = UDim2.new(0.05, 0, 0.40, 0)
-dropdownESPBtn.Text = "ESP WildEggs (0) ▼"
-dropdownESPBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-dropdownESPBtn.TextColor3 = Color3.fromRGB(200, 100, 255)
-dropdownESPBtn.TextSize = 11
-dropdownESPBtn.Font = Enum.Font.SourceSansBold
+local dropdownESPBtn = createStyledButton("Select Esp Eggs (0)  ▼", UDim2.new(0, 0, 0, 38), Color3.fromRGB(30, 35, 45), Color3.fromRGB(210, 120, 255))
 dropdownESPBtn.Parent = contentFrame
 
-local espToggleBtn = Instance.new("TextButton")
-espToggleBtn.Size = UDim2.new(0.9, 0, 0, 20)
-espToggleBtn.Position = UDim2.new(0.05, 0, 0.58, 0)
-espToggleBtn.Text = "MASTER ESP: ON"
-espToggleBtn.BackgroundColor3 = Color3.fromRGB(120, 0, 180)
-espToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-espToggleBtn.TextSize = 10
-espToggleBtn.Font = Enum.Font.SourceSansBold
+local espToggleBtn = createStyledButton("ESP: ON", UDim2.new(0, 0, 0, 76), Color3.fromRGB(110, 40, 160), Color3.fromRGB(255, 255, 255))
 espToggleBtn.Parent = contentFrame
 
-local toggleBtn = Instance.new("TextButton")
-toggleBtn.Size = UDim2.new(0.9, 0, 0, 26)
-toggleBtn.Position = UDim2.new(0.05, 0, 0.74, 0)
-toggleBtn.Text = "START TELEPORT"
-toggleBtn.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
-toggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-toggleBtn.TextSize = 12
-toggleBtn.Font = Enum.Font.SourceSansBold
+local toggleBtn = createStyledButton("START TELEPORT", UDim2.new(0, 0, 0, 120), Color3.fromRGB(0, 160, 110), Color3.fromRGB(255, 255, 255))
 toggleBtn.Parent = contentFrame
 
--- Scrolling Container
+-- Scroll Frame Dropdown
 local scrollFrame = Instance.new("ScrollingFrame")
-scrollFrame.Size = UDim2.new(0.9, 0, 0, 120)
-scrollFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-scrollFrame.BorderSizePixel = 1
-scrollFrame.BorderColor3 = Color3.fromRGB(80, 80, 80)
-scrollFrame.ScrollBarThickness = 6
+scrollFrame.Size = UDim2.new(1, 0, 0, 110)
+scrollFrame.BackgroundColor3 = Color3.fromRGB(16, 18, 22)
+scrollFrame.BorderSizePixel = 0
+scrollFrame.ScrollBarThickness = 4
 scrollFrame.Visible = false
 scrollFrame.ZIndex = 10
 scrollFrame.Parent = contentFrame
 
+pcall(function()
+    local scrollCorner = Instance.new("UICorner")
+    scrollCorner.CornerRadius = UDim.new(0, 7)
+    scrollCorner.Parent = scrollFrame
+end)
+
 local listLayout = Instance.new("UIListLayout")
 listLayout.SortOrder = Enum.SortOrder.LayoutOrder
-listLayout.Padding = UDim.new(0, 2)
+listLayout.Padding = UDim.new(0, 3)
 listLayout.Parent = scrollFrame
 
-local function updateDropdownTitles()
-    local _, spCounts = getSpawnPointData()
-    local _, weCounts = getWildEggsData()
+-- Icon Syclon (Minimized GUI)
+local iconFrame = Instance.new("Frame")
+iconFrame.Name = "SyclonIcon"
+iconFrame.Size = UDim2.new(0, 45, 0, 45)
+iconFrame.Position = mainFrame.Position
+iconFrame.BackgroundColor3 = Color3.fromRGB(22, 24, 29)
+iconFrame.Visible = false
+iconFrame.Active = true
+iconFrame.Draggable = true
+iconFrame.Parent = screenGui
 
-    local spSelected = 0
-    for _, v in pairs(selectedSpawnPointTargets) do if v then spSelected = spSelected + 1 end end
-    dropdownSpawnPointBtn.Text = "TP SpawnPoint (" .. spSelected .. ")" .. (activeDropdown == "SpawnPoint" and " ▲" or " ▼")
+pcall(function()
+    local iconCorner = Instance.new("UICorner")
+    iconCorner.CornerRadius = UDim.new(1, 0)
+    iconCorner.Parent = iconFrame
+end)
+
+local iconBtn = Instance.new("TextButton")
+iconBtn.Size = UDim2.new(1, 0, 1, 0)
+iconBtn.Text = "S"
+iconBtn.TextColor3 = Color3.fromRGB(0, 180, 255)
+iconBtn.Font = Enum.Font.SourceSansBold
+iconBtn.TextSize = 24
+iconBtn.BackgroundTransparency = 1
+iconBtn.Parent = iconFrame
+
+-- Logic Handler UI
+local function updateDropdownTitles()
+    local _, weCounts = getWildEggsData()
 
     local weSelected = 0
     for _, v in pairs(selectedWildEggsTargets) do if v then weSelected = weSelected + 1 end end
-    dropdownWildEggsBtn.Text = "TP WildEggs (" .. weSelected .. ")" .. (activeDropdown == "WildEggs" and " ▲" or " ▼")
+    dropdownWildEggsBtn.Text = "Select Eggs (" .. weSelected .. ")" .. (activeDropdown == "WildEggs" and "  ▲" or "  ▼")
 
     local espSelected = 0
     for _, v in pairs(selectedESPTargets) do if v then espSelected = espSelected + 1 end end
-    dropdownESPBtn.Text = "ESP WildEggs (" .. espSelected .. ")" .. (activeDropdown == "ESP" and " ▲" or " ▼")
-end
-
+    dropdownESPBtn.Text = "Select Esp Eggs
 local itemButtons = {}
 local function renderDropdownContent(mode)
     for _, btn in ipairs(itemButtons) do btn:Destroy() end
     itemButtons = {}
 
-    local currentList = {}
-    local mapCounts = {}
-    local targetTable = {}
+    local currentList, mapCounts = getWildEggsData()
+    local targetTable = (mode == "WildEggs") and selectedWildEggsTargets or selectedESPTargets
 
-    if mode == "SpawnPoint" then
-        currentList, mapCounts = getSpawnPointData()
-        targetTable = selectedSpawnPointTargets
-    elseif mode == "WildEggs" then
-        currentList, mapCounts = getWildEggsData()
-        targetTable = selectedWildEggsTargets
-    elseif mode == "ESP" then
-        currentList, mapCounts = getWildEggsData()
-        targetTable = selectedESPTargets
-    end
-
-    scrollFrame.CanvasSize = UDim2.new(0, 0, 0, math.max(#currentList * 24, 24))
+    scrollFrame.CanvasSize = UDim2.new(0, 0, 0, math.max(#currentList * 26, 26))
 
     if #currentList == 0 then
         local emptyLabel = Instance.new("TextLabel")
         emptyLabel.Size = UDim2.new(1, 0, 0, 24)
-        emptyLabel.Text = "(Belum ada item terdeteksi)"
-        emptyLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
+        emptyLabel.Text = "Tidak ada item terdeteksi"
+        emptyLabel.TextColor3 = Color3.fromRGB(120, 120, 120)
         emptyLabel.BackgroundTransparency = 1
         emptyLabel.TextSize = 10
         emptyLabel.Font = Enum.Font.SourceSansItalic
@@ -303,24 +335,22 @@ local function renderDropdownContent(mode)
         local activeInMap = mapCounts[itemName] or 0
 
         local itemBtn = Instance.new("TextButton")
-        itemBtn.Size = UDim2.new(1, -8, 0, 22)
-        -- Tetap tampilkan tulisan nama telur + jumlah aktif di map (x0 jika habis)
-        itemBtn.Text = (isSelected and "[✓] " or "[  ] ") .. itemName .. " (x" .. activeInMap .. ")"
+        itemBtn.Size = UDim2.new(1, -6, 0, 24)
+        itemBtn.Text = (isSelected and "  [✓] " or "  [  ] ") .. itemName .. "  (x" .. activeInMap .. ")"
         
-        local activeColor = Color3.fromRGB(40, 40, 40)
-        if isSelected then
-            if mode == "SpawnPoint" then activeColor = Color3.fromRGB(180, 130, 0)
-            elseif mode == "WildEggs" then activeColor = Color3.fromRGB(0, 130, 180)
-            elseif mode == "ESP" then activeColor = Color3.fromRGB(140, 0, 180) end
-        end
-
-        itemBtn.BackgroundColor3 = activeColor
-        itemBtn.TextColor3 = (activeInMap > 0) and Color3.fromRGB(220, 220, 220) or Color3.fromRGB(130, 130, 130)
+        itemBtn.BackgroundColor3 = isSelected and ((mode == "WildEggs") and Color3.fromRGB(0, 100, 140) or Color3.fromRGB(120, 40, 150)) or Color3.fromRGB(28, 32, 40)
+        itemBtn.TextColor3 = (activeInMap > 0) and Color3.fromRGB(230, 230, 230) or Color3.fromRGB(130, 130, 130)
         itemBtn.TextSize = 11
         itemBtn.Font = Enum.Font.SourceSans
         itemBtn.TextXAlignment = Enum.TextXAlignment.Left
         itemBtn.ZIndex = 11
         itemBtn.Parent = scrollFrame
+
+        pcall(function()
+            local corner = Instance.new("UICorner")
+            corner.CornerRadius = UDim.new(0, 5)
+            corner.Parent = itemBtn
+        end)
 
         itemBtn.MouseButton1Click:Connect(function()
             targetTable[itemName] = not targetTable[itemName]
@@ -336,181 +366,133 @@ local function toggleDropdown(mode)
     if activeDropdown == mode then
         activeDropdown = nil
         scrollFrame.Visible = false
-        mainFrame.Size = UDim2.new(0, 240, 0, 215)
+        mainFrame.Size = UDim2.new(0, 250, 0, 210)
     else
         activeDropdown = mode
         renderDropdownContent(mode)
         scrollFrame.Visible = true
 
-        if mode == "SpawnPoint" then
-            scrollFrame.Position = UDim2.new(0.05, 0, 0.18, 0)
-        elseif mode == "WildEggs" then
-            scrollFrame.Position = UDim2.new(0.05, 0, 0.36, 0)
+        if mode == "WildEggs" then
+            scrollFrame.Position = UDim2.new(0, 0, 0, 36)
         elseif mode == "ESP" then
-            scrollFrame.Position = UDim2.new(0.05, 0, 0.54, 0)
+            scrollFrame.Position = UDim2.new(0, 0, 0, 74)
         end
 
-        mainFrame.Size = UDim2.new(0, 240, 0, 335)
+        mainFrame.Size = UDim2.new(0, 250, 0, 320)
     end
     updateDropdownTitles()
 end
 
-dropdownSpawnPointBtn.MouseButton1Click:Connect(function() toggleDropdown("SpawnPoint") end)
 dropdownWildEggsBtn.MouseButton1Click:Connect(function() toggleDropdown("WildEggs") end)
 dropdownESPBtn.MouseButton1Click:Connect(function() toggleDropdown("ESP") end)
 
 espToggleBtn.MouseButton1Click:Connect(function()
     espEnabled = not espEnabled
-    espToggleBtn.Text = espEnabled and "MASTER ESP: ON" or "MASTER ESP: OFF"
-    espToggleBtn.BackgroundColor3 = espEnabled and Color3.fromRGB(120, 0, 180) or Color3.fromRGB(70, 70, 70)
+    espToggleBtn.Text = espEnabled and "ESP: ON" or "ESP: OFF"
+    espToggleBtn.BackgroundColor3 = espEnabled and Color3.fromRGB(110, 40, 160) or Color3.fromRGB(50, 55, 65)
     updateESP()
 end)
 
-minimizeBtn.MouseButton1Click:Connect(function()
+-- Minimize & Restore System
+local function toggleMinimize()
     isMinimized = not isMinimized
     if isMinimized then
-        contentFrame.Visible = false
-        mainFrame.Size = UDim2.new(0, 240, 0, 25)
-        minimizeBtn.Text = "+"
+        iconFrame.Position = mainFrame.Position
+        mainFrame.Visible = false
+        iconFrame.Visible = true
     else
-        contentFrame.Visible = true
-        minimizeBtn.Text = "-"
-        mainFrame.Size = activeDropdown and UDim2.new(0, 240, 0, 335) or UDim2.new(0, 240, 0, 215)
-    end
-end)
-
--- HELPER TELEPORT & INTERAKSI
-local function getHRP()
-    local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-    return char:FindFirstChild("HumanoidRootPart")
-end
-
-local function returnToSpawn()
-    local hrp = getHRP()
-    if savedSpawnCFrame and hrp then
-        hrp.CFrame = savedSpawnCFrame
+        mainFrame.Position = iconFrame.Position
+        iconFrame.Visible = false
+        mainFrame.Visible = true
     end
 end
+
+minimizeBtn.MouseButton1Click:Connect(toggleMinimize)
+iconBtn.MouseButton1Click:Connect(toggleMinimize)
 
 closeBtn.MouseButton1Click:Connect(function()
     isRunning = false
-    returnToSpawn()
     screenGui:Destroy()
 end)
 
-local function interactAndHold(instance)
-    local prompt = instance:FindFirstChildOfClass("ProximityPrompt") or instance:FindFirstChildWhichIsA("ProximityPrompt", true)
-    if prompt then
-        if prompt.MaxActivationDistance < 30 then prompt.MaxActivationDistance = 30 end
-        local holdDuration = prompt.HoldDuration > 0 and prompt.HoldDuration or 0.1
-        local startTime = tick()
-        while instance and instance.Parent and (tick() - startTime < holdDuration + 0.6) do
-            fireproximityprompt(prompt)
-            task.wait(0.1)
-        end
-    else
-        task.wait(0.3)
-    end
-end
-
--- LOOP REFRESH ESP DAN UI COUNT DENGAN BERKALA
+-- Background Loop
 task.spawn(function()
-    while true do
-        updateESP()
-        if activeDropdown then
-            renderDropdownContent(activeDropdown)
-        end
-        updateDropdownTitles()
+    while screenGui and screenGui.Parent do
+        pcall(function()
+            updateESP()
+            if activeDropdown then
+                renderDropdownContent(activeDropdown)
+            end
+            updateDropdownTitles()
+        end)
         task.wait(1)
     end
 end)
 
--- LOGIKA AUTO TELEPORT
+-- Teleport Logic
+local function processTeleportTarget(targetObj)
+    local rootPart = getRootPart()
+    if not rootPart or not targetObj or not targetObj.Parent then return false end
+
+    local targetPart = targetObj:IsA("Model") and (targetObj.PrimaryPart or targetObj:FindFirstChildWhichIsA("BasePart")) or targetObj
+    if not targetPart then return false end
+
+    local originalPosition = rootPart.CFrame
+    
+    rootPart.CFrame = targetPart.CFrame + Vector3.new(0, 3, 0)
+    task.wait(0.4)
+
+    local prompt = targetObj:FindFirstChildWhichIsA("ProximityPrompt", true)
+    if prompt then
+        triggerProximityPrompt(prompt)
+        task.wait(0.3)
+    end
+
+    rootPart.CFrame = originalPosition
+    task.wait(1.0)
+    storeEggRemote()
+    task.wait(0.3)
+
+    return true
+end
+
 local function startCollecting()
     activeDropdown = nil
     scrollFrame.Visible = false
-    if not isMinimized then mainFrame.Size = UDim2.new(0, 240, 0, 215) end
+    if not isMinimized then mainFrame.Size = UDim2.new(0, 250, 0, 210) end
     updateDropdownTitles()
 
-    local hrp = getHRP()
-    if hrp then savedSpawnCFrame = hrp.CFrame end
-
     while isRunning do
-        local hrpCurrent = getHRP()
-        if not hrpCurrent then break end
-
-        -- 1. Scan & Teleport ke SpawnPoint Items
-        local spawnPointFolder = Workspace:FindFirstChild("SpawnPoint")
-        if spawnPointFolder and isRunning then
-            for _, subFolder in ipairs(spawnPointFolder:GetChildren()) do
-                if not isRunning then break end
-
-                local targets = subFolder:GetChildren()
-                if #targets == 0 then targets = {subFolder} end
-
-                for _, targetObj in ipairs(targets) do
-                    if not isRunning then break end
-                    local itemName = targetObj:GetAttribute("EggTier") or targetObj.Name
-
-                    if selectedSpawnPointTargets[itemName] then
-                        if targetObj and targetObj.Parent then
-                            local targetCFrame = targetObj:IsA("Model") and targetObj:GetPivot() or targetObj.CFrame
-                            if targetCFrame then
-                                hrpCurrent.CFrame = targetCFrame * CFrame.new(0, 0.5, 0)
-                                task.wait(0.35)
-                                interactAndHold(targetObj)
-                                task.wait(0.15)
-                                returnToSpawn()
-                                task.wait(0.3)
-                            end
-                        end
-                    end
-                end
-            end
-        end
-
-        -- 2. Scan & Teleport ke WildEggs Items
+        local foundAny = false
         local eggRuntime = Workspace:FindFirstChild("EggRuntime")
         local wildEggsFolder = eggRuntime and eggRuntime:FindFirstChild("WildEggs")
+        
         if wildEggsFolder and isRunning then
             for _, eggObj in ipairs(wildEggsFolder:GetChildren()) do
                 if not isRunning then break end
-
                 local eggName = eggObj:GetAttribute("EggTier") or eggObj.Name
                 if selectedWildEggsTargets[eggName] then
-                    if eggObj and eggObj.Parent then
-                        local targetCFrame = eggObj:IsA("Model") and eggObj:GetPivot() or eggObj.CFrame
-                        if targetCFrame then
-                            hrpCurrent.CFrame = targetCFrame * CFrame.new(0, 0.5, 0)
-                            task.wait(0.35)
-                            interactAndHold(eggObj)
-                            task.wait(0.15)
-                            returnToSpawn()
-                            task.wait(0.3)
-                        end
-                    end
+                    foundAny = processTeleportTarget(eggObj)
                 end
             end
         end
 
-        task.wait(0.5)
+        task.wait(foundAny and 0.5 or 1.5)
     end
 
-    returnToSpawn()
     toggleBtn.Text = "START TELEPORT"
-    toggleBtn.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
+    toggleBtn.BackgroundColor3 = Color3.fromRGB(0, 160, 110)
 end
 
 toggleBtn.MouseButton1Click:Connect(function()
     if isRunning then
         isRunning = false
-        returnToSpawn()
         toggleBtn.Text = "START TELEPORT"
-        toggleBtn.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
+        toggleBtn.BackgroundColor3 = Color3.fromRGB(0, 160, 110)
     else
         isRunning = true
-        toggleBtn.Text = "STOP"
-        toggleBtn.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
+        toggleBtn.Text = "STOP TELEPORT"
+        toggleBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
         task.spawn(startCollecting)
     end
 end)
