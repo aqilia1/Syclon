@@ -6,7 +6,7 @@ local MapScripts = {
     -- [PlaceID] = "NamaFileScript.lua"
     [91653709055687] = "StealAndCookFood.lua",  -- Blox Fruits First Sea
     [104050046639813] = "RideAFish.lua",  -- Blox Fruits Second Sea
-    [7449423635] = "blox_fruits.lua",  -- Blox Fruits Third Sea
+    [113132840606249] = "hamstersmash.lua",  -- Blox Fruits Third Sea
     [4520749081] = "king_legacy.lua",  -- King Legacy
     [13772394367] = "blade_ball.lua",  -- Blade Ball
 }
