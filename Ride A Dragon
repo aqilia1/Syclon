@@ -1,0 +1,433 @@
+-- Ride A Dragon — Compact Mobile
+local Players   = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local RunService= game:GetService("RunService")
+local Drawing   = (pcall(function() return Drawing end)) and Drawing or nil
+
+local LP = Players.LocalPlayer
+
+local function resolveParent()
+    local ok, hui = pcall(function() return gethui() end)
+    if ok and hui then return hui, "gethui" end
+    local pg = LP:FindFirstChildOfClass("PlayerGui") or LP:FindFirstChild("PlayerGui")
+    if pg then return pg, "PlayerGui" end
+    local ok2, pg2 = pcall(function() return LP:WaitForChild("PlayerGui", 5) end)
+    if ok2 and pg2 then return pg2, "PlayerGui(wait)" end
+end
+local parent, kind = resolveParent()
+if not parent then warn("[RAD] no parent"); return end
+local old = parent:FindFirstChild("RideADragonGUI"); if old then old:Destroy() end
+pcall(function() local cg = game:GetService("CoreGui"); local c = cg:FindFirstChild("RideADragonGUI"); if c then c:Destroy() end end)
+
+local CFG = { TP_DELAY=0.4, HOLD_DURATION=7.0, HOLD_TICK=0.08, HOLD_REPOSITION=1.0,
+    RETURN_DELAY=0.35, CYCLE_GAP=0.2, MAX_CYCLES=0, TP_OFFSET=Vector3.new(0,2,0) }
+
+local S = {
+    models={}, groups={}, espSelected={}, autoSelected={},
+    running=false, killed=false, baseCF=nil,
+    stats={tp=0,ok=0,ret=0,fail=0}, esp=false,
+    espBills={}, espHighlights={},
+}
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "RideADragonGUI"
+ScreenGui.ResetOnSpawn=false
+ScreenGui.IgnoreGuiInset=true
+ScreenGui.ZIndexBehavior=Enum.ZIndexBehavior.Sibling
+ScreenGui.DisplayOrder=999
+ScreenGui.Enabled=true
+ScreenGui.Parent=parent
+
+local function mkCorner(p,r) local c=Instance.new("UICorner"); c.CornerRadius=UDim.new(0,r); c.Parent=p; return c end
+local function mkStroke(p,col,th) local s=Instance.new("UIStroke"); s.Color=col; s.Thickness=th or 1; s.Parent=p; return s end
+
+-- mini S
+local MiniIcon = Instance.new("TextButton")
+MiniIcon.Size=UDim2.new(0,44,0,44); MiniIcon.Position=UDim2.new(0,16,0,16)
+MiniIcon.BackgroundColor3=Color3.fromRGB(120,60,200); MiniIcon.Text="S"
+MiniIcon.TextColor3=Color3.fromRGB(255,255,255); MiniIcon.TextSize=24
+MiniIcon.Font=Enum.Font.GothamBold; MiniIcon.Visible=false; MiniIcon.BorderSizePixel=0
+MiniIcon.Parent=ScreenGui
+mkCorner(MiniIcon,10); mkStroke(MiniIcon,Color3.fromRGB(200,120,255),2)
+
+local function makeDraggable(handle,target)
+    local dragging,dragStart,startPos
+    handle.InputBegan:Connect(function(input)
+        if input.UserInputType==Enum.UserInputType.MouseButton1 or input.UserInputType==Enum.UserInputType.Touch then
+            dragging=true; dragStart=input.Position; startPos=target.Position
+            input.Changed:Connect(function()
+                if input.UserInputState==Enum.UserInputState.End then dragging=false end
+            end)
+        end
+    end)
+    handle.InputChanged:Connect(function(input)
+        if (input.UserInputType==Enum.UserInputType.MouseMovement or input.UserInputType==Enum.UserInputType.Touch) and dragging then
+            local d=input.Position-dragStart
+            target.Position=UDim2.new(startPos.X.Scale,startPos.X.Offset+d.X,startPos.Y.Scale,startPos.Y.Offset+d.Y)
+        end
+    end)
+end
+
+-- ===== MAIN PANEL (compact 240x300) =====
+local Panel = Instance.new("Frame")
+Panel.Name="Panel"
+Panel.Size=UDim2.new(0,240,0,300)
+Panel.Position=UDim2.new(0,16,0,60)
+Panel.BackgroundColor3=Color3.fromRGB(20,20,26)
+Panel.BackgroundTransparency=0.05
+Panel.BorderSizePixel=0
+Panel.Active=true
+Panel.Parent=ScreenGui
+mkCorner(Panel,10); mkStroke(Panel,Color3.fromRGB(180,60,220),1.5)
+
+local Header = Instance.new("Frame")
+Header.Size=UDim2.new(1,0,0,32); Header.BackgroundColor3=Color3.fromRGB(32,26,40)
+Header.BackgroundTransparency=0.1; Header.BorderSizePixel=0; Header.Parent=Panel
+mkCorner(Header,10)
+
+local Title = Instance.new("TextLabel")
+Title.Size=UDim2.new(1,-70,1,0); Title.Position=UDim2.new(0,10,0,0)
+Title.BackgroundTransparency=1; Title.Text="Ride A Dragon"
+Title.TextColor3=Color3.fromRGB(240,225,250); Title.TextSize=13
+Title.Font=Enum.Font.GothamBold; Title.TextXAlignment=Enum.TextXAlignment.Left; Title.Parent=Header
+
+local MinBtn = Instance.new("TextButton")
+MinBtn.Size=UDim2.new(0,26,0,22); MinBtn.Position=UDim2.new(1,-58,0,5)
+MinBtn.BackgroundColor3=Color3.fromRGB(120,60,180); MinBtn.Text="—"
+MinBtn.TextColor3=Color3.fromRGB(255,255,255); MinBtn.TextSize=14
+MinBtn.Font=Enum.Font.GothamBold; MinBtn.BorderSizePixel=0; MinBtn.Parent=Header
+mkCorner(MinBtn,5)
+
+local ExitBtn = Instance.new("TextButton")
+ExitBtn.Size=UDim2.new(0,26,0,22); ExitBtn.Position=UDim2.new(1,-30,0,5)
+ExitBtn.BackgroundColor3=Color3.fromRGB(170,50,60); ExitBtn.Text="X"
+ExitBtn.TextColor3=Color3.fromRGB(255,255,255); ExitBtn.TextSize=12
+ExitBtn.Font=Enum.Font.GothamBold; ExitBtn.BorderSizePixel=0; ExitBtn.Parent=Header
+mkCorner(ExitBtn,5)
+ExitBtn.MouseButton1Click:Connect(function() S.killed=true; S.running=false; ScreenGui:Destroy() end)
+
+local Body = Instance.new("Frame")
+Body.Size=UDim2.new(1,-16,1,-56); Body.Position=UDim2.new(0,8,0,38)
+Body.BackgroundTransparency=1; Body.Parent=Panel
+
+local Footer = Instance.new("TextLabel")
+Footer.Size=UDim2.new(1,0,0,14); Footer.Position=UDim2.new(0,0,1,-16)
+Footer.BackgroundTransparency=1; Footer.Text="powered by Syclon"
+Footer.TextColor3=Color3.fromRGB(150,140,170); Footer.TextSize=10
+Footer.Font=Enum.Font.Gotham; Footer.Parent=Panel
+
+local function mkLabel(text,size,pos,color,bold)
+    local l=Instance.new("TextLabel"); l.Size=size; l.Position=pos
+    l.BackgroundTransparency=1; l.Text=text
+    l.TextColor3=color or Color3.fromRGB(200,200,215); l.TextSize=11
+    l.Font=bold and Enum.Font.GothamBold or Enum.Font.Gotham
+    l.TextXAlignment=Enum.TextXAlignment.Left; l.Parent=Body; return l
+end
+
+-- ============ MULTI-SELECT DROPDOWN (compact) ============
+local openOverlay = nil  -- hanya 1 dropdown terbuka
+
+local function makeMultiDropdown(yPos, titleText, sourceSet, onChanged)
+    mkLabel(titleText, UDim2.new(1,0,0,14), UDim2.new(0,0,0,yPos), Color3.fromRGB(180,160,210), true)
+    local y = yPos + 15
+
+    local dropFrame = Instance.new("Frame")
+    dropFrame.Size=UDim2.new(1,0,0,26); dropFrame.Position=UDim2.new(0,0,0,y)
+    dropFrame.BackgroundColor3=Color3.fromRGB(38,34,48); dropFrame.BorderSizePixel=0; dropFrame.Parent=Body
+    mkCorner(dropFrame,6)
+
+    local dropBtn = Instance.new("TextButton")
+    dropBtn.Size=UDim2.new(1,-56,1,0); dropBtn.BackgroundTransparency=1
+    dropBtn.Text="  — semua —"; dropBtn.TextColor3=Color3.fromRGB(235,225,245)
+    dropBtn.TextSize=11; dropBtn.Font=Enum.Font.Gotham
+    dropBtn.TextXAlignment=Enum.TextXAlignment.Left; dropBtn.Parent=dropFrame
+
+    local arrow = Instance.new("TextLabel")
+    arrow.Size=UDim2.new(0,18,1,0); arrow.Position=UDim2.new(1,-38,0,0)
+    arrow.BackgroundTransparency=1; arrow.Text="▾"
+    arrow.TextColor3=Color3.fromRGB(180,160,210); arrow.TextSize=12; arrow.Parent=dropFrame
+
+    local selAllBtn = Instance.new("TextButton")
+    selAllBtn.Size=UDim2.new(0,20,0,18); selAllBtn.Position=UDim2.new(1,-22,0,4)
+    selAllBtn.BackgroundColor3=Color3.fromRGB(80,60,120); selAllBtn.Text="✓"
+    selAllBtn.TextColor3=Color3.fromRGB(255,255,255); selAllBtn.TextSize=11
+    selAllBtn.Font=Enum.Font.GothamBold; selAllBtn.BorderSizePixel=0; selAllBtn.Parent=dropFrame
+    mkCorner(selAllBtn,4)
+
+    local listFrame = Instance.new("ScrollingFrame")
+    listFrame.Size=UDim2.new(1,0,0,120); listFrame.Position=UDim2.new(0,0,0,y+28)
+    listFrame.BackgroundColor3=Color3.fromRGB(30,26,38); listFrame.BorderSizePixel=0
+    listFrame.Visible=false; listFrame.ZIndex=10; listFrame.CanvasSize=UDim2.new(0,0,0,0)
+    listFrame.ScrollBarThickness=3; listFrame.AutomaticCanvasSize=Enum.AutomaticSize.Y
+    listFrame.Parent=Body
+    mkCorner(listFrame,6); mkStroke(listFrame,Color3.fromRGB(120,70,170),1)
+    local ll=Instance.new("UIListLayout"); ll.Padding=UDim.new(0,2); ll.SortOrder=Enum.SortOrder.LayoutOrder; ll.Parent=listFrame
+    local pd=Instance.new("UIPadding"); pd.PaddingTop=UDim.new(0,4); pd.PaddingBottom=UDim.new(0,4); pd.PaddingLeft=UDim.new(0,4); pd.PaddingRight=UDim.new(0,4); pd.Parent=listFrame
+
+    local api = {}
+    function api.close()
+        listFrame.Visible=false; arrow.Text="▾"
+        if openOverlay==api then openOverlay=nil end
+    end
+
+    dropBtn.MouseButton1Click:Connect(function()
+        if listFrame.Visible then api.close() else
+            if openOverlay and openOverlay~=api then openOverlay.close() end
+            listFrame.Visible=true; arrow.Text="▴"; openOverlay=api
+        end
+    end)
+
+    function api.refresh()
+        for _,c in ipairs(listFrame:GetChildren()) do if c:IsA("TextButton") then c:Destroy() end end
+        local names={}; for n in pairs(S.groups) do table.insert(names,n) end; table.sort(names)
+        local modeAll=(next(sourceSet)==nil)
+        for i,nm in ipairs(names) do
+            local cnt=#S.groups[nm].models
+            local checked = modeAll or sourceSet[nm]==true
+            local row=Instance.new("TextButton")
+            row.Size=UDim2.new(1,-6,0,24)
+            row.BackgroundColor3= checked and Color3.fromRGB(80,140,90) or Color3.fromRGB(46,40,56)
+            row.Text=""; row.AutoButtonColor=false
+            row.BorderSizePixel=0; row.LayoutOrder=i; row.Parent=listFrame
+            mkCorner(row,5)
+
+            local box=Instance.new("TextLabel")
+            box.Size=UDim2.new(0,16,0,16); box.Position=UDim2.new(0,4,0,4)
+            box.BackgroundColor3= checked and Color3.fromRGB(120,220,140) or Color3.fromRGB(60,54,72)
+            box.Text= checked and "✓" or ""; box.TextColor3=Color3.fromRGB(20,20,26)
+            box.TextSize=10; box.Font=Enum.Font.GothamBold; box.BorderSizePixel=0; box.Parent=row
+            mkCorner(box,3)
+
+            local lbl=Instance.new("TextLabel")
+            lbl.Size=UDim2.new(1,-24,1,0); lbl.Position=UDim2.new(0,24,0,0)
+            lbl.BackgroundTransparency=1
+            lbl.Text=string.format("%s (x%d)",nm,cnt)
+            lbl.TextColor3=Color3.fromRGB(230,220,240)
+            lbl.TextSize=11; lbl.Font=Enum.Font.Gotham
+            lbl.TextXAlignment=Enum.TextXAlignment.Left; lbl.Parent=row
+
+            row.MouseButton1Click:Connect(function()
+                local wasAll=(next(sourceSet)==nil)
+                if wasAll then
+                    for k in pairs(S.groups) do sourceSet[k]=true end
+                    sourceSet[nm]=nil
+                else
+                    if sourceSet[nm] then sourceSet[nm]=nil else sourceSet[nm]=true end
+                end
+                api.refresh(); if onChanged then onChanged() end
+            end)
+        end
+        local c=0; for _ in pairs(sourceSet) do c+=1 end
+        dropBtn.Text=(c==0) and "  — semua —" or ("  "..c.." dipilih")
+    end
+
+    selAllBtn.MouseButton1Click:Connect(function()
+        if next(sourceSet)==nil then for k in pairs(S.groups) do sourceSet[k]=true end
+        else for k in pairs(sourceSet) do sourceSet[k]=nil end end
+        api.refresh(); if onChanged then onChanged() end
+    end)
+
+    return api
+end
+
+local espDd = makeMultiDropdown(0, "ESP:", S.espSelected, function() refreshESP() end)
+
+-- ESP toggle compact
+local EspBtn = Instance.new("TextButton")
+EspBtn.Size=UDim2.new(1,0,0,24); EspBtn.Position=UDim2.new(0,0,0,54)
+EspBtn.BackgroundColor3=Color3.fromRGB(60,50,70); EspBtn.Text="ESP+HIGH: OFF"
+EspBtn.TextColor3=Color3.fromRGB(230,220,240); EspBtn.TextSize=11
+EspBtn.Font=Enum.Font.GothamBold; EspBtn.BorderSizePixel=0; EspBtn.Parent=Body
+mkCorner(EspBtn,6)
+
+local autoDd = makeMultiDropdown(84, "AUTO:", S.autoSelected, function() end)
+
+-- action row compact
+local BtnRow = Instance.new("Frame")
+BtnRow.Size=UDim2.new(1,0,0,32); BtnRow.Position=UDim2.new(0,0,1,-40)
+BtnRow.BackgroundTransparency=1; BtnRow.Parent=Body
+
+local TPBtn = Instance.new("TextButton")
+TPBtn.Size=UDim2.new(0.48,0,1,0); TPBtn.Position=UDim2.new(0,0,0,0)
+TPBtn.BackgroundColor3=Color3.fromRGB(120,60,200); TPBtn.Text="TP"
+TPBtn.TextColor3=Color3.fromRGB(255,255,255); TPBtn.TextSize=12
+TPBtn.Font=Enum.Font.GothamBold; TPBtn.BorderSizePixel=0; TPBtn.Parent=BtnRow
+mkCorner(TPBtn,8)
+
+local AutoBtn = Instance.new("TextButton")
+AutoBtn.Size=UDim2.new(0.48,0,1,0); AutoBtn.Position=UDim2.new(0.52,0,0,0)
+AutoBtn.BackgroundColor3=Color3.fromRGB(60,180,100); AutoBtn.Text="AUTO"
+AutoBtn.TextColor3=Color3.fromRGB(255,255,255); AutoBtn.TextSize=12
+AutoBtn.Font=Enum.Font.GothamBold; AutoBtn.BorderSizePixel=0; AutoBtn.Parent=BtnRow
+mkCorner(AutoBtn,8)
+
+local StatusLabel = mkLabel("Ready", UDim2.new(1,0,0,12), UDim2.new(0,0,1,-54), Color3.fromRGB(255,200,120), false)
+StatusLabel.TextXAlignment=Enum.TextXAlignment.Center
+
+MinBtn.MouseButton1Click:Connect(function() Panel.Visible=false; MiniIcon.Visible=true end)
+MiniIcon.MouseButton1Click:Connect(function() Panel.Visible=true; MiniIcon.Visible=false end)
+
+makeDraggable(Header, Panel)
+makeDraggable(MiniIcon, MiniIcon)
+
+-- ===== HELPERS =====
+local function setStatus(t) if StatusLabel.Parent then StatusLabel.Text=tostring(t) end end
+local function getHRP() local c=LP.Character; return c and c:FindFirstChild("HumanoidRootPart") end
+local function findRoot(m)
+    if m:IsA("BasePart") then return m end
+    return m:FindFirstChild("HumanoidRootPart") or m.PrimaryPart or m:FindFirstChildWhichIsA("BasePart",true)
+end
+local function getEggName(m) local n=m:GetAttribute("EggName"); if typeof(n)=="string" and #n>0 then return n end return m.Name end
+local function tpTo(cf) local h=getHRP(); if not h or not cf then return false end return (pcall(function() h.CFrame=CFrame.new(cf.Position+CFG.TP_OFFSET) end)) end
+local function inSet(s,nm) if next(s)==nil then return true end return s[nm]==true end
+
+-- ===== ESP =====
+local function clearESP(m)
+    local b=S.espBills[m]; if b then pcall(function() b:Remove() end); S.espBills[m]=nil end
+    local h=S.espHighlights[m]; if h then pcall(function() h:Destroy() end); S.espHighlights[m]=nil end
+end
+local function buildESP(m)
+    local r=findRoot(m); if not r then return end
+    local nm=getEggName(m)
+    if not S.espBills[m] and Drawing then
+        local ok,bb=pcall(function()
+            local d=Drawing.new("Text"); d.Text=nm; d.Size=13; d.Center=true; d.Outline=true
+            d.Color=Color3.fromRGB(255,215,120); d.OutlineColor=Color3.fromRGB(0,0,0); d.Visible=false; return d
+        end)
+        if ok then S.espBills[m]=bb end
+    end
+    if not S.espHighlights[m] then
+        local ok,h=pcall(function()
+            local hh=Instance.new("Highlight")
+            hh.FillColor=Color3.fromRGB(180,60,220); hh.FillTransparency=0.55
+            hh.OutlineColor=Color3.fromRGB(255,220,255); hh.OutlineTransparency=0
+            hh.DepthMode=Enum.HighlightDepthMode.AlwaysOnTop
+            hh.Adornee=m; hh.Parent=parent; return hh
+        end)
+        if ok then S.espHighlights[m]=h end
+    end
+end
+function refreshESP()
+    for m in pairs(S.espBills) do if not S.esp or not m.Parent or not inSet(S.espSelected,getEggName(m)) then clearESP(m) end end
+    for m in pairs(S.espHighlights) do if not S.esp or not m.Parent or not inSet(S.espSelected,getEggName(m)) then clearESP(m) end end
+    if not S.esp then return end
+    local we=Workspace:FindFirstChild("WorldEggs"); if not we then return end
+    for _,obj in ipairs(we:GetDescendants()) do
+        local isT=(obj:IsA("Model") and findRoot(obj)) or (obj:IsA("BasePart") and obj.Parent==we)
+        if isT and inSet(S.espSelected,getEggName(obj)) then buildESP(obj) end
+    end
+end
+EspBtn.MouseButton1Click:Connect(function()
+    S.esp=not S.esp
+    EspBtn.Text="ESP+HIGH: "..(S.esp and "ON" or "OFF")
+    EspBtn.BackgroundColor3=S.esp and Color3.fromRGB(60,150,100) or Color3.fromRGB(60,50,70)
+    refreshESP()
+end)
+
+-- ===== HOLD =====
+local function fireAll(t)
+    local h=getHRP(); if not h or not t or not t.Parent then return end
+    for _,d in ipairs(t:GetDescendants()) do
+        if d:IsA("BasePart") then
+            pcall(function() firetouchinterest(h,d,0); firetouchinterest(h,d,1) end)
+            local cd=d:FindFirstChildOfClass("ClickDetector"); if cd then pcall(function() fireclickdetector(cd) end) end
+        elseif d:IsA("ProximityPrompt") then pcall(function() fireproximityprompt(d) end)
+        elseif d:IsA("ClickDetector") then pcall(function() fireclickdetector(d) end) end
+    end
+end
+local function holdCollect(t)
+    if not t or not t.Parent then return true end
+    local h=getHRP(); if not h then return false end
+    local t0=tick(); local last=tick()
+    while tick()-t0<CFG.HOLD_DURATION do
+        if S.killed or not S.running then return false end
+        if not t.Parent then return true end
+        fireAll(t)
+        if tick()-last>CFG.HOLD_REPOSITION then
+            local r=findRoot(t); if r and (h.Position-r.Position).Magnitude>6 then tpTo(r.CFrame) end
+            last=tick()
+        end
+        task.wait(CFG.HOLD_TICK)
+    end
+    return (not t.Parent)
+end
+
+-- ===== SCAN =====
+local lastCount=-1
+local function rebuild()
+    S.models={}; S.groups={}
+    local we=Workspace:FindFirstChild("WorldEggs")
+    if we then
+        for _,obj in ipairs(we:GetDescendants()) do
+            if obj:IsA("Model") then
+                local r=findRoot(obj)
+                if r then
+                    local nm=getEggName(obj)
+                    S.models[obj]={name=nm,root=r}
+                    S.groups[nm]=S.groups[nm] or {models={}}
+                    table.insert(S.groups[nm].models,obj)
+                end
+            elseif obj:IsA("BasePart") and obj.Parent==we then
+                local nm=getEggName(obj)
+                S.models[obj]={name=nm,root=obj}
+                S.groups[nm]=S.groups[nm] or {models={}}
+                table.insert(S.groups[nm].models,obj)
+            end
+        end
+    end
+    espDd.refresh(); autoDd.refresh()
+end
+local function scanEggs()
+    local list={}
+    local we=Workspace:FindFirstChild("WorldEggs"); if not we then return list end
+    for _,obj in ipairs(we:GetDescendants()) do
+        if obj:IsA("Model") and findRoot(obj) then
+            local nm=getEggName(obj)
+            if inSet(S.autoSelected,nm) then table.insert(list,{model=obj,name=nm}) end
+        elseif obj:IsA("BasePart") and obj.Parent==we then
+            local nm=getEggName(obj)
+            if inSet(S.autoSelected,nm) then table.insert(list,{model=obj,name=nm}) end
+        end
+    end
+    table.sort(list,function(a,b)
+        if a.name==b.name then return tostring(a.model)<tostring(b.model) end
+        return a.name<b.name
+    end)
+    return list
+end
+
+TPBtn.MouseButton1Click:Connect(function()
+    local eggs=scanEggs(); if #eggs==0 then setStatus("no target"); return end
+    local r=findRoot(eggs[1].model); if not r then setStatus("no root"); return end
+    if tpTo(r.CFrame) then setStatus("TP "..eggs[1].name) else setStatus("TP fail") end
+end)
+
+local function runCycleOnce()
+    local eggs=scanEggs(); if #eggs==0 then return false end
+    for i,e in ipairs(eggs) do
+        if S.killed or not S.running then break end
+        local t=e.model
+        if t and t.Parent then
+            setStatus(string.format("%d/%d %s",i,#eggs,e.name))
+            local r=findRoot(t)
+            if r and tpTo(r.CFrame) then
+                S.stats.tp+=1; task.wait(CFG.TP_DELAY)
+                if holdCollect(t) then S.stats.ok+=1 else S.stats.fail+=1 end
+                if S.baseCF then task.wait(CFG.RETURN_DELAY); if tpTo(S.baseCF) then S.stats.ret+=1; task.wait(CFG.RETURN_DELAY) end end
+            else S.stats.fail+=1 end
+            task.wait(CFG.CYCLE_GAP)
+        end
+    end
+    return true
+end
+local function startAuto()
+    if S.running then return end
+    local h=getHRP(); if not h then setStatus("no hrp"); return end
+    S.baseCF=h.CFrame; S.running=true; S.killed=false
+    setStatus("running…")
+    task.spawn(function()
+        local iter=0
+        while S.running and not S.killed do
+            iter+=1
+            if CFG.MAX_CYCLES>0 and iter>CFG.MAX_CYCLES then break end
+            if not runCycleOnce() t
