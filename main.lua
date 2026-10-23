@@ -7,7 +7,7 @@ local MapScripts = {
     [91653709055687] = "StealAndCookFood.lua",  -- Blox Fruits First Sea
     [104050046639813] = "RideAFish.lua",  -- Blox Fruits Second Sea
     [113132840606249] = "hamstersmash.lua",  -- Blox Fruits Third Sea
-    [4520749081] = "king_legacy.lua",  -- King Legacy
+    [122969114308489] = "findanimalbones.lua",  -- King Legacy
     [13772394367] = "blade_ball.lua",  -- Blade Ball
 }
 
