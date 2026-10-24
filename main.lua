@@ -10,6 +10,7 @@ local MapScripts = {
     [122969114308489] = "findanimalbones.lua",  -- King Legacy
     [132122109102323] = "Ride A Dragon",  -- Blade Ball
     [119672433229947] = "fishrider.lua",
+[98985770842211] = "rollaluckyegg.lua",
 }
 
 -- 2. Dapatkan PlaceId map saat ini
