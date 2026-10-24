@@ -9,6 +9,7 @@ local MapScripts = {
     [113132840606249] = "hamstersmash.lua",  -- Blox Fruits Third Sea
     [122969114308489] = "findanimalbones.lua",  -- King Legacy
     [132122109102323] = "Ride A Dragon",  -- Blade Ball
+    [119672433229947] = "fishriders.lua",
 }
 
 -- 2. Dapatkan PlaceId map saat ini
