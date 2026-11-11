@@ -1,0 +1,659 @@
+--[[
+    Rod And Reef v12
+    - Billboard nama ESP diperkecil (TextSize fixed, bukan TextScaled) + offset vertikal
+    - STOP -> auto re-equip rod (fire "L" sekali)
+]]
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local Workspace = game:GetService("Workspace")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+pcall(function()
+    local old = playerGui:FindFirstChild("RodAndReefGui")
+    if old then old:Destroy() end
+    local core = game:GetService("CoreGui")
+    local old2 = core:FindFirstChild("RodAndReefGui")
+    if old2 then old2:Destroy() end
+end)
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "RodAndReefGui"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.IgnoreGuiInset = true
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.DisplayOrder = 999
+
+local okParent = pcall(function()
+    ScreenGui.Parent = game:GetService("CoreGui")
+end)
+if not okParent or not ScreenGui.Parent then
+    ScreenGui.Parent = playerGui
+end
+
+local CONFIG = {
+    DefaultDelay = 3,
+    MinDelay = 0.5,
+    MaxDelay = 30,
+    Color = Color3.fromRGB(24, 26, 34),
+    InnerBg = Color3.fromRGB(32, 35, 46),
+    SubBg = Color3.fromRGB(40, 44, 58),
+    HeaderBg = Color3.fromRGB(44, 48, 64),
+    Accent = Color3.fromRGB(90, 190, 255),
+    Success = Color3.fromRGB(70, 210, 130),
+    Danger = Color3.fromRGB(240, 90, 90),
+    TextColor = Color3.fromRGB(238, 240, 245),
+    TextDim = Color3.fromRGB(170, 178, 195),
+    Warn = Color3.fromRGB(255, 200, 90),
+    Credit = Color3.fromRGB(140, 148, 165),
+    EspColor = Color3.fromRGB(255, 100, 100),
+    DexColor = Color3.fromRGB(255, 225, 100),
+    RowBg = Color3.fromRGB(50, 55, 72),
+    RowHover = Color3.fromRGB(66, 72, 92),
+    RowOn = Color3.fromRGB(40, 130, 85),
+    PanelBg = Color3.fromRGB(36, 40, 52),
+    Pad = 10,
+    RowH = 26,
+    Gap = 8,
+}
+
+local function create(className, props)
+    local ok, inst = pcall(Instance.new, className)
+    if not ok or not inst then return nil end
+    for k, v in pairs(props) do
+        pcall(function() inst[k] = v end)
+    end
+    return inst
+end
+
+local function getViewport()
+    local cam = workspace.CurrentCamera
+    return cam and cam.ViewportSize or Vector2.new(1280, 720)
+end
+
+local FRAME_W = math.min(580, getViewport().X - 20)
+local FRAME_H = 320
+local MainFrame = create("Frame", {
+    Name = "MainFrame",
+    Size = UDim2.new(0, FRAME_W, 0, FRAME_H),
+    Position = UDim2.new(0.5, -FRAME_W/2, 0.5, -FRAME_H/2),
+    BackgroundColor3 = CONFIG.Color,
+    BorderSizePixel = 0,
+    Active = true,
+    Parent = ScreenGui,
+})
+if not MainFrame then return end
+create("UICorner", { CornerRadius = UDim.new(0, 12), Parent = MainFrame })
+create("UIStroke", { Color = CONFIG.Accent, Thickness = 1.5, Transparency = 0.5, Parent = MainFrame })
+
+local HDR_H = 38
+local Header = create("Frame", {
+    Size = UDim2.new(1, 0, 0, HDR_H),
+    BackgroundColor3 = CONFIG.HeaderBg,
+    BorderSizePixel = 0,
+    Active = true,
+    Parent = MainFrame,
+})
+create("UICorner", { CornerRadius = UDim.new(0, 12), Parent = Header })
+create("Frame", {
+    Size = UDim2.new(1, 0, 0, 12),
+    Position = UDim2.new(0, 0, 1, -12),
+    BackgroundColor3 = CONFIG.HeaderBg,
+    BorderSizePixel = 0,
+    Parent = Header,
+})
+
+create("TextLabel", {
+    Size = UDim2.new(1, -80, 1, 0),
+    Position = UDim2.new(0, 12, 0, 0),
+    BackgroundTransparency = 1,
+    Text = "🎣 Rod And Reef",
+    TextColor3 = CONFIG.Accent,
+    Font = Enum.Font.GothamBold,
+    TextSize = 15,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    Parent = Header,
+})
+
+local MinBtn = create("TextButton", {
+    Size = UDim2.new(0, 26, 0, 26),
+    Position = UDim2.new(1, -58, 0, 6),
+    BackgroundColor3 = CONFIG.SubBg,
+    Text = "—",
+    TextColor3 = CONFIG.TextColor,
+    Font = Enum.Font.GothamBold,
+    TextSize = 16,
+    AutoButtonColor = false,
+    Parent = Header,
+})
+create("UICorner", { CornerRadius = UDim.new(0, 6), Parent = MinBtn })
+
+local CloseBtn = create("TextButton", {
+    Size = UDim2.new(0, 26, 0, 26),
+    Position = UDim2.new(1, -30, 0, 6),
+    BackgroundColor3 = CONFIG.SubBg,
+    Text = "✕",
+    TextColor3 = CONFIG.TextColor,
+    Font = Enum.Font.GothamBold,
+    TextSize = 14,
+    AutoButtonColor = false,
+    Parent = Header,
+})
+create("UICorner", { CornerRadius = UDim.new(0, 6), Parent = CloseBtn })
+
+local PAD = CONFIG.Pad
+local GAP = CONFIG.Gap
+local BODY_TOP = HDR_H + PAD
+local FOOTER_H = 20
+local BodyW = FRAME_W - PAD * 2
+local LeftW = math.floor(BodyW * 0.42)
+local RightW = BodyW - LeftW - GAP
+local BodyH = FRAME_H - BODY_TOP - PAD - FOOTER_H
+
+-- LEFT COLUMN
+local LeftCol = create("Frame", {
+    Size = UDim2.new(0, LeftW, 0, BodyH),
+    Position = UDim2.new(0, PAD, 0, BODY_TOP),
+    BackgroundColor3 = CONFIG.InnerBg,
+    BorderSizePixel = 0,
+    Parent = MainFrame,
+})
+create("UICorner", { CornerRadius = UDim.new(0, 8), Parent = LeftCol })
+
+create("TextLabel", {
+    Size = UDim2.new(1, -16, 0, 18),
+    Position = UDim2.new(0, 8, 0, 8),
+    BackgroundTransparency = 1,
+    Text = "Auto Fishing",
+    TextColor3 = CONFIG.Accent,
+    Font = Enum.Font.GothamBold,
+    TextSize = 13,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    Parent = LeftCol,
+})
+
+local InfoLabel = create("TextLabel", {
+    Size = UDim2.new(1, -16, 0, 34),
+    Position = UDim2.new(0, 8, 0, 30),
+    BackgroundColor3 = Color3.fromRGB(22, 24, 32),
+    Text = "Idle",
+    TextColor3 = CONFIG.Warn,
+    Font = Enum.Font.GothamBold,
+    TextSize = 13,
+    Parent = LeftCol,
+})
+create("UICorner", { CornerRadius = UDim.new(0, 6), Parent = InfoLabel })
+
+local DelayFrame = create("Frame", {
+    Size = UDim2.new(1, -16, 0, 62),
+    Position = UDim2.new(0, 8, 0, 72),
+    BackgroundColor3 = CONFIG.SubBg,
+    BorderSizePixel = 0,
+    Parent = LeftCol,
+})
+create("UICorner", { CornerRadius = UDim.new(0, 8), Parent = DelayFrame })
+
+local DelayLabel = create("TextLabel", {
+    Size = UDim2.new(1, -16, 0, 20),
+    Position = UDim2.new(0, 8, 0, 5),
+    BackgroundTransparency = 1,
+    Text = "Delay: 3.0s",
+    TextColor3 = CONFIG.TextColor,
+    Font = Enum.Font.Gotham,
+    TextSize = 12,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    Parent = DelayFrame,
+})
+
+local DelayInput = create("TextBox", {
+    Size = UDim2.new(0, 62, 0, 28),
+    Position = UDim2.new(0, 8, 0, 28),
+    BackgroundColor3 = CONFIG.RowBg,
+    Text = "3",
+    TextColor3 = CONFIG.TextColor,
+    Font = Enum.Font.GothamBold,
+    TextSize = 13,
+    ClearTextOnFocus = false,
+    Parent = DelayFrame,
+})
+create("UICorner", { CornerRadius = UDim.new(0, 6), Parent = DelayInput })
+
+local currentDelay = CONFIG.DefaultDelay
+local function updateLabels()
+    DelayLabel.Text = string.format("Delay: %.1fs", currentDelay)
+    DelayInput.Text = tostring(currentDelay)
+end
+
+local function makeArrow(text, posX, callback, parent)
+    local btn = create("TextButton", {
+        Size = UDim2.new(0, 30, 0, 28),
+        Position = UDim2.new(0, posX, 0, 28),
+        BackgroundColor3 = CONFIG.RowBg,
+        Text = text,
+        TextColor3 = CONFIG.TextColor,
+        Font = Enum.Font.GothamBold,
+        TextSize = 15,
+        AutoButtonColor = false,
+        Parent = parent,
+    })
+    if btn then
+        create("UICorner", { CornerRadius = UDim.new(0, 6), Parent = btn })
+        btn.MouseButton1Click:Connect(callback)
+    end
+    return btn
+end
+
+makeArrow("−", 78, function()
+    currentDelay = math.max(CONFIG.MinDelay, math.floor((currentDelay - 0.5) * 10) / 10)
+    updateLabels()
+end, DelayFrame)
+
+makeArrow("+", 112, function()
+    currentDelay = math.min(CONFIG.MaxDelay, math.floor((currentDelay + 0.5) * 10) / 10)
+    updateLabels()
+end, DelayFrame)
+
+DelayInput.FocusLost:Connect(function()
+    local num = tonumber(DelayInput.Text)
+    if num and num >= CONFIG.MinDelay and num <= CONFIG.MaxDelay then
+        currentDelay = math.floor(num * 10) / 10
+    end
+    updateLabels()
+end)
+
+local ToggleBtn = create("TextButton", {
+    Size = UDim2.new(1, -16, 0, 46),
+    Position = UDim2.new(0, 8, 0, 142),
+    BackgroundColor3 = CONFIG.Success,
+    Text = "▶  START",
+    TextColor3 = Color3.fromRGB(255, 255, 255),
+    Font = Enum.Font.GothamBold,
+    TextSize = 15,
+    AutoButtonColor = false,
+    Parent = LeftCol,
+})
+create("UICorner", { CornerRadius = UDim.new(0, 8), Parent = ToggleBtn })
+
+-- RIGHT COLUMN
+local RightCol = create("Frame", {
+    Size = UDim2.new(0, RightW, 0, BodyH),
+    Position = UDim2.new(0, PAD + LeftW + GAP, 0, BODY_TOP),
+    BackgroundTransparency = 1,
+    BorderSizePixel = 0,
+    Parent = MainFrame,
+})
+
+local function makeSection(parent, yPos, height, title)
+    local sec = create("Frame", {
+        Size = UDim2.new(1, 0, 0, height),
+        Position = UDim2.new(0, 0, 0, yPos),
+        BackgroundColor3 = CONFIG.InnerBg,
+        BorderSizePixel = 0,
+        Parent = parent,
+    })
+    create("UICorner", { CornerRadius = UDim.new(0, 8), Parent = sec })
+    create("TextLabel", {
+        Size = UDim2.new(1, -110, 0, 20),
+        Position = UDim2.new(0, 10, 0, 8),
+        BackgroundTransparency = 1,
+        Text = title,
+        TextColor3 = CONFIG.Accent,
+        Font = Enum.Font.GothamBold,
+        TextSize = 13,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        Parent = sec,
+    })
+    return sec
+end
+
+local function makeDropdownBtn(parent, yPos, rightOffset, placeholder)
+    local btn = create("TextButton", {
+        Size = UDim2.new(1, -(rightOffset or 20), 0, 28),
+        Position = UDim2.new(0, 10, 0, yPos),
+        BackgroundColor3 = CONFIG.RowBg,
+        Text = "",
+        AutoButtonColor = false,
+        Parent = parent,
+    })
+    create("UICorner", { CornerRadius = UDim.new(0, 6), Parent = btn })
+    local lbl = create("TextLabel", {
+        Size = UDim2.new(1, -30, 1, 0),
+        Position = UDim2.new(0, 10, 0, 0),
+        BackgroundTransparency = 1,
+        Text = placeholder or "Pilih...",
+        TextColor3 = CONFIG.TextColor,
+        Font = Enum.Font.Gotham,
+        TextSize = 12,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        Parent = btn,
+    })
+    create("TextLabel", {
+        Size = UDim2.new(0, 22, 1, 0),
+        Position = UDim2.new(1, -26, 0, 0),
+        BackgroundTransparency = 1,
+        Text = "▼",
+        TextColor3 = CONFIG.Accent,
+        Font = Enum.Font.GothamBold,
+        TextSize = 11,
+        Parent = btn,
+    })
+    return btn, lbl
+end
+
+local ESP_H = 118
+local EspSec = makeSection(RightCol, 0, ESP_H, "ESP NPC")
+
+local espEnabled = false
+local EspToggleBtn = create("TextButton", {
+    Size = UDim2.new(0, 56, 0, 28),
+    Position = UDim2.new(1, -66, 0, 36),
+    BackgroundColor3 = CONFIG.Danger,
+    Text = "OFF",
+    TextColor3 = Color3.fromRGB(255, 255, 255),
+    Font = Enum.Font.GothamBold,
+    TextSize = 12,
+    AutoButtonColor = false,
+    Parent = EspSec,
+})
+create("UICorner", { CornerRadius = UDim.new(0, 6), Parent = EspToggleBtn })
+
+local EspDropdownBtn, EspDropdownLbl = makeDropdownBtn(EspSec, 36, 76, "Pilih NPC  (0)")
+
+local EspStatus = create("TextLabel", {
+    Size = UDim2.new(1, -20, 0, 20),
+    Position = UDim2.new(0, 10, 1, -26),
+    BackgroundTransparency = 1,
+    Text = "ESP off",
+    TextColor3 = CONFIG.TextDim,
+    Font = Enum.Font.Gotham,
+    TextSize = 11,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    Parent = EspSec,
+})
+
+local TP_H = 118
+local TpSec = makeSection(RightCol, ESP_H + GAP, TP_H, "TELEPORT NPC")
+
+local TpDropdownBtn, TpDropdownLbl = makeDropdownBtn(TpSec, 36, 100, "Pilih NPC")
+
+local TpGoBtn = create("TextButton", {
+    Size = UDim2.new(0, 84, 0, 28),
+    Position = UDim2.new(1, -94, 0, 36),
+    BackgroundColor3 = CONFIG.Accent,
+    Text = "Teleport",
+    TextColor3 = Color3.fromRGB(15, 20, 30),
+    Font = Enum.Font.GothamBold,
+    TextSize = 12,
+    AutoButtonColor = false,
+    Parent = TpSec,
+})
+create("UICorner", { CornerRadius = UDim.new(0, 6), Parent = TpGoBtn })
+
+local TpStatus = create("TextLabel", {
+    Size = UDim2.new(1, -20, 0, 20),
+    Position = UDim2.new(0, 10, 1, -26),
+    BackgroundTransparency = 1,
+    Text = "Pilih NPC lalu Teleport",
+    TextColor3 = CONFIG.TextDim,
+    Font = Enum.Font.Gotham,
+    TextSize = 11,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    Parent = TpSec,
+})
+
+create("TextLabel", {
+    Size = UDim2.new(1, 0, 0, FOOTER_H),
+    Position = UDim2.new(0, 0, 1, -FOOTER_H - 4),
+    BackgroundTransparency = 1,
+    Text = "powered by syclon",
+    TextColor3 = CONFIG.Credit,
+    Font = Enum.Font.Gotham,
+    TextSize = 10,
+    TextXAlignment = Enum.TextXAlignment.Center,
+    Parent = MainFrame,
+})
+
+-- OVERLAY
+local OVERLAY_HDR = 26
+local OVERLAY_FOOTER = 32
+local BASE_Z = 1000
+
+local Overlay = create("Frame", {
+    Name = "DropdownOverlay",
+    Size = UDim2.new(0, 200, 0, 100),
+    BackgroundColor3 = CONFIG.PanelBg,
+    BorderSizePixel = 0,
+    Visible = false,
+    Active = true,
+    ZIndex = BASE_Z,
+    Parent = ScreenGui,
+})
+create("UICorner", { CornerRadius = UDim.new(0, 8), Parent = Overlay })
+create("UIStroke", { Color = CONFIG.Accent, Thickness = 1.2, Transparency = 0.3, Parent = Overlay })
+
+local OverlayHdr = create("Frame", {
+    Size = UDim2.new(1, 0, 0, OVERLAY_HDR),
+    BackgroundColor3 = CONFIG.HeaderBg,
+    BorderSizePixel = 0,
+    ZIndex = BASE_Z + 1,
+    Parent = Overlay,
+})
+create("UICorner", { CornerRadius = UDim.new(0, 8), Parent = OverlayHdr })
+create("Frame", {
+    Size = UDim2.new(1, 0, 0, 8),
+    Position = UDim2.new(0, 0, 1, -8),
+    BackgroundColor3 = CONFIG.HeaderBg,
+    BorderSizePixel = 0,
+    ZIndex = BASE_Z + 1,
+    Parent = OverlayHdr,
+})
+
+local OverlayTitle = create("TextLabel", {
+    Size = UDim2.new(1, -34, 1, 0),
+    Position = UDim2.new(0, 10, 0, 0),
+    BackgroundTransparency = 1,
+    Text = "Pilih NPC",
+    TextColor3 = CONFIG.Accent,
+    Font = Enum.Font.GothamBold,
+    TextSize = 12,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    ZIndex = BASE_Z + 2,
+    Parent = OverlayHdr,
+})
+
+local OverlayCloseBtn = create("TextButton", {
+    Size = UDim2.new(0, 22, 0, 22),
+    Position = UDim2.new(1, -26, 0, 2),
+    BackgroundColor3 = CONFIG.Danger,
+    Text = "✕",
+    TextColor3 = Color3.fromRGB(255, 255, 255),
+    Font = Enum.Font.GothamBold,
+    TextSize = 12,
+    AutoButtonColor = false,
+    ZIndex = BASE_Z + 3,
+    Parent = OverlayHdr,
+})
+create("UICorner", { CornerRadius = UDim.new(0, 5), Parent = OverlayCloseBtn })
+
+local OverlayScroll = create("ScrollingFrame", {
+    Size = UDim2.new(1, 0, 1, -(OVERLAY_HDR + OVERLAY_FOOTER)),
+    Position = UDim2.new(0, 0, 0, OVERLAY_HDR),
+    BackgroundTransparency = 1,
+    BorderSizePixel = 0,
+    ScrollBarThickness = 5,
+    ScrollBarImageColor3 = CONFIG.Accent,
+    CanvasSize = UDim2.new(0, 0, 0, 0),
+    ZIndex = BASE_Z + 1,
+    Parent = Overlay,
+})
+
+local OverlayActions = create("Frame", {
+    Size = UDim2.new(1, 0, 0, OVERLAY_FOOTER),
+    Position = UDim2.new(0, 0, 1, -OVERLAY_FOOTER),
+    BackgroundColor3 = CONFIG.PanelBg,
+    BorderSizePixel = 0,
+    ZIndex = BASE_Z + 1,
+    Parent = Overlay,
+})
+
+local OverlayAllBtn = create("TextButton", {
+    Size = UDim2.new(0.5, -4, 0, 26),
+    Position = UDim2.new(0, 4, 0, 3),
+    BackgroundColor3 = CONFIG.Success,
+    Text = "All",
+    TextColor3 = Color3.fromRGB(255, 255, 255),
+    Font = Enum.Font.GothamBold,
+    TextSize = 12,
+    AutoButtonColor = false,
+    ZIndex = BASE_Z + 2,
+    Parent = OverlayActions,
+})
+create("UICorner", { CornerRadius = UDim.new(0, 5), Parent = OverlayAllBtn })
+
+local OverlayNoneBtn = create("TextButton", {
+    Size = UDim2.new(0.5, -4, 0, 26),
+    Position = UDim2.new(0.5, 0, 0, 3),
+    BackgroundColor3 = CONFIG.Danger,
+    Text = "None",
+    TextColor3 = Color3.fromRGB(255, 255, 255),
+    Font = Enum.Font.GothamBold,
+    TextSize = 12,
+    AutoButtonColor = false,
+    ZIndex = BASE_Z + 2,
+    Parent = OverlayActions,
+})
+create("UICorner", { CornerRadius = UDim.new(0, 5), Parent = OverlayNoneBtn })
+
+-- STATE
+local highlights = {}
+local billboards = {}
+local espSelected = {}
+local tpSelected = nil
+local ROW_H = CONFIG.RowH
+local overlayMode = nil
+
+local function findDialogueFolder()
+    local direct = Workspace:FindFirstChild("DialogueNPCs")
+    if direct then return direct end
+    return Workspace:FindFirstChild("DialogueNPCs", true)
+end
+
+local function countMap(t)
+    local n = 0
+    for _ in pairs(t) do n = n + 1 end
+    return n
+end
+
+local function getModelRoot(model)
+    return model:FindFirstChild("HumanoidRootPart")
+        or model:FindFirstChild("Head")
+        or model:FindFirstChildWhichIsA("BasePart", true)
+end
+
+local function collectNames()
+    local folder = findDialogueFolder()
+    local names, seen = {}, {}
+    if folder then
+        for _, child in ipairs(folder:GetChildren()) do
+            if child:IsA("Model") and not seen[child.Name] then
+                seen[child.Name] = true
+                table.insert(names, child.Name)
+            end
+        end
+    end
+    table.sort(names)
+    return names, folder ~= nil
+end
+
+local function clearOverlayRows()
+    for _, c in ipairs(OverlayScroll:GetChildren()) do
+        if c:IsA("TextButton") or c:IsA("TextLabel") then c:Destroy() end
+    end
+end
+
+local function positionOverlay(triggerBtn, withActions, title)
+    local vp = getViewport()
+    local abs = triggerBtn.AbsolutePosition
+    local absSize = triggerBtn.AbsoluteSize
+    local names, hasFolder = collectNames()
+    local totalCount = #names
+    local actionsH = withActions and OVERLAY_FOOTER or 0
+    local contentH = OVERLAY_HDR + math.max(totalCount, 1) * ROW_H + actionsH
+    local minH = OVERLAY_HDR + ROW_H + actionsH
+
+    local w = absSize.X
+    if w < 160 then w = 160 end
+    local x = abs.X
+    if x + w > vp.X - 8 then x = vp.X - w - 8 end
+    if x < 8 then x = 8 end
+
+    local belowY = abs.Y + absSize.Y + 4
+    local maxBelow = vp.Y - belowY - 8
+    local maxAbove = abs.Y - 8
+
+    local h, y
+    if contentH <= maxBelow then
+        h = contentH
+        y = belowY
+    elseif contentH <= maxAbove then
+        h = contentH
+        y = abs.Y - contentH - 4
+    else
+        if maxBelow >= maxAbove then
+            h = math.max(minH, math.min(contentH, maxBelow))
+            y = belowY
+        else
+            h = math.max(minH, math.min(contentH, maxAbove))
+            y = abs.Y - h - 4
+        end
+    end
+
+    Overlay.Position = UDim2.new(0, x, 0, y)
+    Overlay.Size = UDim2.new(0, w, 0, h)
+    OverlayTitle.Text = title or "Pilih NPC"
+    OverlayActions.Visible = withActions
+    OverlayScroll.Size = UDim2.new(1, 0, 1, -(OVERLAY_HDR + actionsH))
+    OverlayScroll.CanvasSize = UDim2.new(0, 0, 0, math.max(totalCount, 1) * ROW_H)
+    OverlayScroll.CanvasPosition = Vector2.new(0, 0)
+
+    if not hasFolder or totalCount == 0 then
+        local empty = create("TextLabel", {
+            Size = UDim2.new(1, 0, 0, ROW_H),
+            BackgroundTransparency = 1,
+            Text = "DialogueNPCs kosong",
+            TextColor3 = CONFIG.TextDim,
+            Font = Enum.Font.Gotham,
+            TextSize = 12,
+            ZIndex = BASE_Z + 2,
+            Parent = OverlayScroll,
+        })
+        if empty then empty.Position = UDim2.new(0, 0, 0, 0) end
+    end
+end
+
+local refreshEsp
+
+local function buildEspOverlayRows(triggerBtn)
+    clearOverlayRows()
+    local names = collectNames()
+    for i, name in ipairs(names) do
+        local isOn = espSelected[name] and true or false
+        local row = create("TextButton", {
+            Size = UDim2.new(1, 0, 0, ROW_H),
+            Position = UDim2.new(0, 0, 0, (i - 1) * ROW_H),
+            BackgroundColor3 = isOn and CONFIG.RowOn or CONFIG.RowBg,
+            Text = "",
+            AutoButtonColor = false,
+            ZIndex = BASE_Z + 2,
+            Parent = OverlayScroll,
+        })
+        local check = create("TextLabel", {
+            Size = UDim2.new(0, 22, 1, 0),
+            Position = UDim2.new(0, 8, 0, 0),
+            BackgroundTransparency = 1,
+            Text = isOn and "☑" or "☐",
+  
