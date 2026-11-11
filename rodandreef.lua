@@ -656,4 +656,487 @@ local function buildEspOverlayRows(triggerBtn)
             Position = UDim2.new(0, 8, 0, 0),
             BackgroundTransparency = 1,
             Text = isOn and "☑" or "☐",
-  
+            TextColor3 = isOn and Color3.fromRGB(255,255,255) or CONFIG.TextDim,
+            Font = Enum.Font.GothamBold,
+            TextSize = 14,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            ZIndex = BASE_Z + 3,
+            Parent = row,
+        })
+        create("TextLabel", {
+            Size = UDim2.new(1, -34, 1, 0),
+            Position = UDim2.new(0, 32, 0, 0),
+            BackgroundTransparency = 1,
+            Text = name,
+            TextColor3 = CONFIG.TextColor,
+            Font = Enum.Font.Gotham,
+            TextSize = 12,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            ZIndex = BASE_Z + 3,
+            Parent = row,
+        })
+        row.MouseEnter:Connect(function()
+            if not espSelected[name] then row.BackgroundColor3 = CONFIG.RowHover end
+        end)
+        row.MouseLeave:Connect(function()
+            row.BackgroundColor3 = espSelected[name] and CONFIG.RowOn or CONFIG.RowBg
+        end)
+        row.MouseButton1Click:Connect(function()
+            espSelected[name] = not espSelected[name] or nil
+            check.Text = espSelected[name] and "☑" or "☐"
+            row.BackgroundColor3 = espSelected[name] and CONFIG.RowOn or CONFIG.RowBg
+            if espEnabled then refreshEsp() else
+                EspDropdownLbl.Text = string.format("Pilih NPC  (%d)", countMap(espSelected))
+            end
+        end)
+    end
+    positionOverlay(triggerBtn, true, "ESP NPC")
+end
+
+local function buildTpOverlayRows(triggerBtn)
+    clearOverlayRows()
+    local names = collectNames()
+    for i, name in ipairs(names) do
+        local isOn = (tpSelected == name)
+        local row = create("TextButton", {
+            Size = UDim2.new(1, 0, 0, ROW_H),
+            Position = UDim2.new(0, 0, 0, (i - 1) * ROW_H),
+            BackgroundColor3 = isOn and CONFIG.RowOn or CONFIG.RowBg,
+            Text = "",
+            AutoButtonColor = false,
+            ZIndex = BASE_Z + 2,
+            Parent = OverlayScroll,
+        })
+        create("TextLabel", {
+            Size = UDim2.new(0, 22, 1, 0),
+            Position = UDim2.new(0, 8, 0, 0),
+            BackgroundTransparency = 1,
+            Text = isOn and "●" or "○",
+            TextColor3 = isOn and Color3.fromRGB(255,255,255) or CONFIG.TextDim,
+            Font = Enum.Font.GothamBold,
+            TextSize = 14,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            ZIndex = BASE_Z + 3,
+            Parent = row,
+        })
+        create("TextLabel", {
+            Size = UDim2.new(1, -34, 1, 0),
+            Position = UDim2.new(0, 32, 0, 0),
+            BackgroundTransparency = 1,
+            Text = name,
+            TextColor3 = CONFIG.TextColor,
+            Font = Enum.Font.Gotham,
+            TextSize = 12,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            ZIndex = BASE_Z + 3,
+            Parent = row,
+        })
+        row.MouseEnter:Connect(function()
+            if tpSelected ~= name then row.BackgroundColor3 = CONFIG.RowHover end
+        end)
+        row.MouseLeave:Connect(function()
+            row.BackgroundColor3 = (tpSelected == name) and CONFIG.RowOn or CONFIG.RowBg
+        end)
+        row.MouseButton1Click:Connect(function()
+            tpSelected = name
+            TpDropdownLbl.Text = "Pilih NPC: " .. name
+            TpStatus.Text = "Target: " .. name
+            Overlay.Visible = false
+            overlayMode = nil
+        end)
+    end
+    positionOverlay(triggerBtn, false, "TELEPORT NPC")
+end
+
+local function closeOverlay()
+    Overlay.Visible = false
+    overlayMode = nil
+end
+
+OverlayCloseBtn.MouseButton1Click:Connect(closeOverlay)
+
+EspDropdownBtn.MouseButton1Click:Connect(function()
+    if overlayMode == "esp" and Overlay.Visible then
+        closeOverlay()
+        return
+    end
+    overlayMode = "esp"
+    buildEspOverlayRows(EspDropdownBtn)
+    Overlay.Visible = true
+end)
+
+TpDropdownBtn.MouseButton1Click:Connect(function()
+    if overlayMode == "tp" and Overlay.Visible then
+        closeOverlay()
+        return
+    end
+    overlayMode = "tp"
+    buildTpOverlayRows(TpDropdownBtn)
+    Overlay.Visible = true
+end)
+
+OverlayAllBtn.MouseButton1Click:Connect(function()
+    if overlayMode ~= "esp" then return end
+    local folder = findDialogueFolder()
+    if folder then
+        for _, child in ipairs(folder:GetChildren()) do
+            if child:IsA("Model") then espSelected[child.Name] = true end
+        end
+    end
+    buildEspOverlayRows(EspDropdownBtn)
+    if espEnabled then refreshEsp() end
+end)
+
+OverlayNoneBtn.MouseButton1Click:Connect(function()
+    if overlayMode ~= "esp" then return end
+    espSelected = {}
+    buildEspOverlayRows(EspDropdownBtn)
+    if espEnabled then refreshEsp() end
+end)
+
+local function clearEsp()
+    for _, hl in pairs(highlights) do
+        if hl and hl.Parent then hl:Destroy() end
+    end
+    for _, bb in pairs(billboards) do
+        if bb and bb.Parent then bb:Destroy() end
+    end
+    highlights = {}
+    billboards = {}
+end
+
+local function attachEspToModel(model)
+    if not model or not model:IsA("Model") then return end
+    if not (highlights[model] and highlights[model].Parent) then
+        local hl = Instance.new("Highlight")
+        hl.Name = "RodAndReefESP"
+        hl.FillColor = CONFIG.EspColor
+        hl.OutlineColor = Color3.fromRGB(255, 255, 255)
+        hl.FillTransparency = 0.35
+        hl.OutlineTransparency = 0
+        hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+        hl.Adornee = model
+        hl.Parent = model
+        highlights[model] = hl
+    end
+    if not (billboards[model] and billboards[model].Parent) then
+        local root = getModelRoot(model)
+        if root then
+            local bb = Instance.new("BillboardGui")
+            bb.Name = "RodAndReefName"
+            bb.Size = UDim2.new(0, 120, 0, 18)          -- kecil
+            bb.StudsOffset = Vector3.new(0, 2.5, 0)     -- di atas kepala
+            bb.AlwaysOnTop = true
+            bb.MaxDistance = 120                        -- batas jarak
+            bb.Adornee = root
+            bb.Parent = root
+
+            local lbl = Instance.new("TextLabel")
+            lbl.Size = UDim2.new(1, 0, 1, 0)
+            lbl.BackgroundTransparency = 1
+            lbl.Text = model.Name
+            lbl.TextColor3 = CONFIG.DexColor
+            lbl.TextStrokeTransparency = 0.2
+            lbl.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+            lbl.Font = Enum.Font.GothamBold
+            lbl.TextSize = 13                            -- fixed, bukan TextScaled
+            lbl.TextScaled = false
+            lbl.TextWrapped = false
+            lbl.Parent = bb
+
+            billboards[model] = bb
+        end
+    end
+end
+
+refreshEsp = function()
+    clearEsp()
+    EspDropdownLbl.Text = string.format("Pilih NPC  (%d)", countMap(espSelected))
+    if not espEnabled then
+        EspStatus.Text = "ESP off"
+        return
+    end
+    if countMap(espSelected) == 0 then
+        EspStatus.Text = "Belum ada NPC dipilih"
+        return
+    end
+    local folder = findDialogueFolder()
+    if not folder then
+        EspStatus.Text = "DialogueNPCs tidak ada"
+        return
+    end
+    local count = 0
+    for _, child in ipairs(folder:GetChildren()) do
+        if child:IsA("Model") and espSelected[child.Name] then
+            attachEspToModel(child)
+            count = count + 1
+        end
+    end
+    EspStatus.Text = string.format("ESP on: %d model", count)
+end
+
+local folderConnAdd, folderConnRemove
+local function bindFolderWatch()
+    if folderConnAdd then folderConnAdd:Disconnect(); folderConnAdd = nil end
+    if folderConnRemove then folderConnRemove:Disconnect(); folderConnRemove = nil end
+    local folder = findDialogueFolder()
+    if not folder then return end
+    folderConnAdd = folder.ChildAdded:Connect(function()
+        if espEnabled then task.wait(0.15); refreshEsp() end
+    end)
+    folderConnRemove = folder.ChildRemoved:Connect(function()
+        if espEnabled then task.wait(0.15); refreshEsp() end
+    end)
+end
+
+EspToggleBtn.MouseButton1Click:Connect(function()
+    espEnabled = not espEnabled
+    if espEnabled then
+        EspToggleBtn.Text = "ON"
+        TweenService:Create(EspToggleBtn, TweenInfo.new(0.2), {BackgroundColor3 = CONFIG.Success}):Play()
+        bindFolderWatch()
+        refreshEsp()
+    else
+        EspToggleBtn.Text = "OFF"
+        TweenService:Create(EspToggleBtn, TweenInfo.new(0.2), {BackgroundColor3 = CONFIG.Danger}):Play()
+        clearEsp()
+        EspStatus.Text = "ESP off"
+    end
+end)
+
+TpGoBtn.MouseButton1Click:Connect(function()
+    if not tpSelected then
+        TpStatus.Text = "Pilih NPC dulu"
+        return
+    end
+    local folder = findDialogueFolder()
+    if not folder then
+        TpStatus.Text = "DialogueNPCs tidak ada"
+        return
+    end
+    local chr = player.Character
+    local hrp = chr and chr:FindFirstChild("HumanoidRootPart")
+    if not hrp then
+        TpStatus.Text = "Character belum ada"
+        return
+    end
+    local target
+    for _, child in ipairs(folder:GetChildren()) do
+        if child:IsA("Model") and child.Name == tpSelected then
+            local r = getModelRoot(child)
+            if r then target = r; break end
+        end
+    end
+    if not target then
+        TpStatus.Text = "Model target tidak ada"
+        return
+    end
+    hrp.CFrame = target.CFrame + Vector3.new(0, 3, 0)
+    TpStatus.Text = "TP ke " .. tpSelected
+end)
+
+UserInputService.InputBegan:Connect(function(input, gpe)
+    if gpe then return end
+    if not Overlay.Visible then return end
+    if input.KeyCode == Enum.KeyCode.Escape then
+        closeOverlay()
+        return
+    end
+    if input.UserInputType ~= Enum.UserInputType.MouseButton1
+    and input.UserInputType ~= Enum.UserInputType.Touch then return end
+    local mp = input.Position
+    local op = Overlay.AbsolutePosition
+    local os = Overlay.AbsoluteSize
+    if mp.X < op.X or mp.X > op.X + os.X or mp.Y < op.Y or mp.Y > op.Y + os.Y then
+        closeOverlay()
+    end
+end)
+
+-- MIN ICON + DRAG
+local MinIcon = create("TextButton", {
+    Size = UDim2.new(0, 50, 0, 50),
+    Position = UDim2.new(0, 20, 0.5, -25),
+    BackgroundColor3 = CONFIG.Color,
+    Text = "🎣",
+    TextColor3 = CONFIG.Accent,
+    Font = Enum.Font.GothamBold,
+    TextSize = 22,
+    Visible = false,
+    AutoButtonColor = false,
+    Parent = ScreenGui,
+})
+create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = MinIcon })
+create("UIStroke", { Color = CONFIG.Accent, Thickness = 1.5, Transparency = 0.4, Parent = MinIcon })
+
+local function makeDraggable(frame, dragArea)
+    local dragging = false
+    local dragInput, dragStart, startPos
+    dragArea.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = frame.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then dragging = false end
+            end)
+        end
+    end)
+    dragArea.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement
+        or input.UserInputType == Enum.UserInputType.Touch then
+            dragInput = input
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if input == dragInput and dragging then
+            local delta = input.Position - dragStart
+            frame.Position = UDim2.new(
+                startPos.X.Scale, startPos.X.Offset + delta.X,
+                startPos.Y.Scale, startPos.Y.Offset + delta.Y
+            )
+            if Overlay.Visible then
+                if overlayMode == "esp" then
+                    buildEspOverlayRows(EspDropdownBtn)
+                elseif overlayMode == "tp" then
+                    buildTpOverlayRows(TpDropdownBtn)
+                end
+            end
+        end
+    end)
+end
+
+makeDraggable(MainFrame, Header)
+makeDraggable(MinIcon, MinIcon)
+
+MinBtn.MouseButton1Click:Connect(function()
+    closeOverlay()
+    MainFrame.Visible = false
+    MinIcon.Visible = true
+end)
+MinIcon.MouseButton1Click:Connect(function()
+    MainFrame.Visible = true
+    MinIcon.Visible = false
+end)
+CloseBtn.MouseButton1Click:Connect(function()
+    clearEsp()
+    ScreenGui:Destroy()
+end)
+
+-- LOOP
+local isRunning = false
+local bufferSupported = pcall(function() return buffer.fromstring("test") end)
+
+local function getByteNet()
+    local rs = game:GetService("ReplicatedStorage")
+    return rs:FindFirstChild("ByteNetReliable") or rs:WaitForChild("ByteNetReliable", 5)
+end
+
+local function waitDelay(seconds, packetName)
+    local total = seconds
+    local waited = 0
+    while waited < total and isRunning do
+        local remaining = total - waited
+        InfoLabel.Text = string.format("%s... %.1fs", packetName or "-", remaining)
+        InfoLabel.TextColor3 = CONFIG.Warn
+        local step = math.min(0.1, remaining)
+        task.wait(step)
+        waited = waited + step
+    end
+end
+
+local function fireL()
+    local bn = getByteNet()
+    if not bn then return false end
+    InfoLabel.Text = "Throwing..."
+    InfoLabel.TextColor3 = CONFIG.Success
+    pcall(function()
+        bn:FireServer(buffer.fromstring("L\004<\000\000\000\000\000\200B"))
+    end)
+    return true
+end
+
+local function fireN()
+    local bn = getByteNet()
+    if not bn then return false end
+    InfoLabel.Text = "Catching..."
+    InfoLabel.TextColor3 = CONFIG.Success
+    pcall(function()
+        bn:FireServer(buffer.fromstring("N\004\a\000Perfect"))
+    end)
+    return true
+end
+
+local function fireP()
+    local bn = getByteNet()
+    if not bn then return false end
+    InfoLabel.Text = "Reeling..."
+    InfoLabel.TextColor3 = CONFIG.Success
+    pcall(function()
+        bn:FireServer(buffer.fromstring("P\004"))
+    end)
+    return true
+end
+
+local function setToggleUI(running)
+    isRunning = running
+    if running then
+        TweenService:Create(ToggleBtn, TweenInfo.new(0.2), {BackgroundColor3 = CONFIG.Danger}):Play()
+        ToggleBtn.Text = "■  STOP"
+    else
+        TweenService:Create(ToggleBtn, TweenInfo.new(0.2), {BackgroundColor3 = CONFIG.Success}):Play()
+        ToggleBtn.Text = "▶  START"
+        InfoLabel.Text = "Idle"
+        InfoLabel.TextColor3 = CONFIG.Warn
+    end
+end
+
+local function startLoop()
+    if isRunning then return end
+    if not bufferSupported then
+        InfoLabel.Text = "buffer not supported"
+        InfoLabel.TextColor3 = CONFIG.Danger
+        return
+    end
+    setToggleUI(true)
+    task.spawn(function()
+        while isRunning do
+            fireL()
+            waitDelay(currentDelay, "Throwing")
+            if not isRunning then break end
+            fireN()
+            waitDelay(currentDelay, "Catching")
+            if not isRunning then break end
+            fireP()
+            waitDelay(currentDelay, "Reeling")
+        end
+    end)
+end
+
+local function stopLoop()
+    if not isRunning then return end
+    isRunning = false
+    setToggleUI(false)
+    -- Re-equip rod setelah stop: fire "L" sekali
+    task.wait(0.2)
+    local bn = getByteNet()
+    if bn then
+        pcall(function()
+            bn:FireServer(buffer.fromstring("L\004<\000\000\000\000\000\200B"))
+        end)
+    end
+end
+
+ToggleBtn.MouseButton1Click:Connect(function()
+    if isRunning then stopLoop() else startLoop() end
+end)
+
+updateLabels()
+setToggleUI(false)
+
+task.spawn(function()
+    task.wait(1)
+    refreshEsp()
+end)
+
+print("[Rod And Reef v12] loaded — powered by syclon")
